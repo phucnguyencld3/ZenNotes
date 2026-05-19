@@ -28,7 +28,7 @@ export function LoginForm() {
     setError(null)
 
     if (!email.trim()) {
-      setError("Vui lòng nhập địa chỉ email!")
+      setError("abc!")
       return
     }
     if (!password) {

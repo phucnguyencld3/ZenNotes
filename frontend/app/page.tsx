@@ -15,13 +15,13 @@ import {
   DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { createNote, deleteNote, listNotes, listTags, type Note, updateNote } from "@/lib/notes"
+import { createNote, deleteNote, listNotes, listTags, renameTag, deleteTag, createTagApi, type Note, type Tag, updateNote } from "@/lib/notes"
 import {
   BellIcon, Loader2Icon, NotebookIcon,
   PencilIcon, PlusIcon, SearchIcon, Trash2Icon,
   StarIcon, ArchiveIcon, SettingsIcon, ClockIcon,
   TypeIcon, PaperclipIcon, ImageIcon, Share2Icon, MoreVerticalIcon, FilesIcon,
-  UserIcon, LogOutIcon, SparklesIcon, ArrowRightIcon, Lock, ShieldCheck
+  UserIcon, LogOutIcon, SparklesIcon, ArrowRightIcon, Lock, ShieldCheck, TagIcon
 } from "lucide-react"
 
 
@@ -107,7 +107,7 @@ export default function HomePage() {
   const [tagInput, setTagInput] = React.useState("")
 
   // Modern dashboard state variables
-  const [activeTab, setActiveTab] = React.useState<"all" | "favorites" | "trash" | "archive" | "settings">("all")
+  const [activeTab, setActiveTab] = React.useState<"all" | "favorites" | "trash" | "archive" | "settings" | "tags">("all")
   const [selectedCategory, setSelectedCategory] = React.useState<string>("All")
   const [selectedNote, setSelectedNote] = React.useState<Note | null>(null)
   const [starredIds, setStarredIds] = React.useState<string[]>([])
@@ -117,11 +117,11 @@ export default function HomePage() {
   const [draftContent, setDraftContent] = React.useState("")
   const [draftTags, setDraftTags] = React.useState<string[]>([])
   const [draftTagInput, setDraftTagInput] = React.useState("")
-  const [apiTags, setApiTags] = React.useState<string[]>([])
+  const [apiTags, setApiTags] = React.useState<Tag[]>([])
 
   const systemTags = React.useMemo(() => {
     const all = new Set<string>()
-    apiTags.forEach(t => all.add(t.toLowerCase()))
+    apiTags.forEach(t => all.add(t.name.toLowerCase()))
     notes.forEach((note) => {
       if (note.tags) {
         note.tags.forEach((t) => all.add(t.toLowerCase()))
@@ -426,6 +426,14 @@ export default function HomePage() {
             <span>Archive</span>
           </div>
           
+          <div 
+            onClick={() => setActiveTab("tags")}
+            className={`flex items-center gap-3 px-6 py-3 font-medium text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] ${activeTab === "tags" ? "text-[#4648d4] bg-white dark:bg-neutral-800 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
+          >
+            <TagIcon className="h-4.5 w-4.5" />
+            <span>Tags</span>
+          </div>
+          
           <UserMenu user={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
       </aside>
@@ -436,6 +444,14 @@ export default function HomePage() {
           currentUser={currentUser} 
           setCurrentUser={setCurrentUser} 
           token={token} 
+        />
+      ) : activeTab === "tags" ? (
+        <TagsWorkspace 
+          apiTags={apiTags}
+          setApiTags={setApiTags}
+          token={token}
+          loadNotes={loadNotes}
+          notes={notes}
         />
       ) : (
         <>
@@ -846,6 +862,13 @@ export default function HomePage() {
             >
               <UserIcon className="h-3.5 w-3.5" />
               Hồ sơ cá nhân
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => setActiveTab("tags")} 
+              className="flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold rounded-xl text-slate-600 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+            >
+              <TagIcon className="h-3.5 w-3.5" />
+              Quản lý Tags
             </DropdownMenuItem>
             <DropdownMenuSeparator className="my-1 border-slate-100 dark:border-neutral-800" />
             <DropdownMenuItem 
@@ -1294,3 +1317,348 @@ function SettingsWorkspace({ currentUser, setCurrentUser, token }: SettingsWorks
     </div>
   )
 }
+
+function TagsWorkspace({ 
+  apiTags, 
+  setApiTags, 
+  token, 
+  loadNotes,
+  notes
+}: { 
+  apiTags: Tag[]
+  setApiTags: React.Dispatch<React.SetStateAction<Tag[]>>
+  token: string | null
+  loadNotes: () => Promise<void>
+  notes: Note[]
+}) {
+  const [search, setSearch] = React.useState("")
+  const [isModalOpen, setIsModalOpen] = React.useState(false)
+  const [modalMode, setModalMode] = React.useState<"create" | "edit">("create")
+  const [editingTag, setEditingTag] = React.useState<string | null>(null)
+  const [tagNameValue, setTagNameValue] = React.useState("")
+  const [selectedColor, setSelectedColor] = React.useState("primary")
+  const [tagDescription, setTagDescription] = React.useState("")
+  const [isLoading, setIsLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  // Derive counts and most popular tag
+  const tagCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {}
+    apiTags.forEach(t => counts[t.name] = 0)
+    notes.forEach(n => {
+      if (n.tags) {
+        n.tags.forEach(t => {
+          if (counts[t] !== undefined) counts[t]++
+        })
+      }
+    })
+    return counts
+  }, [apiTags, notes])
+
+  const mostPopularTag = React.useMemo(() => {
+    let max = 0;
+    let popular = "Chưa có"
+    Object.entries(tagCounts).forEach(([tag, count]) => {
+      if (count > max) {
+        max = count
+        popular = tag
+      }
+    })
+    return popular
+  }, [tagCounts])
+
+  const filteredTags = apiTags.filter(t => t.name.toLowerCase().includes(search.toLowerCase()))
+
+  const colors = [
+    "bg-[#4648d4] text-[#4648d4] border-[#4648d4]", // primary
+    "bg-[#006a61] text-[#006a61] border-[#006a61]", // secondary
+    "bg-[#904900] text-[#904900] border-[#904900]", // tertiary
+    "bg-[#ba1a1a] text-[#ba1a1a] border-[#ba1a1a]", // error
+    "bg-[#E91E63] text-[#E91E63] border-[#E91E63]", // pink
+    "bg-[#9C27B0] text-[#9C27B0] border-[#9C27B0]", // purple
+  ]
+
+  const getColorClasses = (tag: string) => {
+    let hash = 0
+    for (let i = 0; i < tag.length; i++) hash = tag.charCodeAt(i) + ((hash << 5) - hash)
+    const index = Math.abs(hash) % colors.length
+    return colors[index]
+  }
+
+  const openCreate = () => {
+    setModalMode("create")
+    setEditingTag(null)
+    setTagNameValue("")
+    setSelectedColor("primary")
+    setTagDescription("")
+    setIsModalOpen(true)
+  }
+
+  const openEdit = (tag: Tag) => {
+    setModalMode("edit")
+    setEditingTag(tag.name)
+    setTagNameValue(tag.name)
+    setSelectedColor(tag.color || "primary")
+    setTagDescription(tag.description || "")
+    setIsModalOpen(true)
+  }
+
+  const handleSaveModal = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!token) return
+    const newName = tagNameValue.trim()
+    if (!newName) return
+    
+    setIsLoading(true)
+    setError(null)
+    try {
+      if (modalMode === "create") {
+        await createTagApi(token, newName, selectedColor, tagDescription)
+      } else if (modalMode === "edit" && editingTag) {
+        if (newName !== editingTag || selectedColor || tagDescription) {
+          await renameTag(token, editingTag, newName, selectedColor, tagDescription)
+        }
+      }
+      const newTags = await listTags(token)
+      setApiTags(newTags)
+      await loadNotes()
+      setIsModalOpen(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Thao tác thất bại")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleDelete = async (tag: string) => {
+    if (!token) return
+    if (!confirm(`Bạn có chắc chắn muốn xóa tag "${tag}"? Hành động này không thể hoàn tác.`)) return
+    
+    setIsLoading(true)
+    setError(null)
+    try {
+      await deleteTag(token, tag)
+      const newTags = await listTags(token)
+      setApiTags(newTags)
+      await loadNotes()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Xóa tag thất bại")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto custom-scrollbar bg-[#f7f9fb] dark:bg-neutral-950 font-sans">
+      <main className="max-w-[1200px] mx-auto px-6 md:px-12 py-12">
+        {/* Header */}
+        <header className="flex flex-col md:flex-row md:justify-between md:items-end mb-12 gap-6">
+          <div>
+            <h1 className="text-[40px] leading-[1.2] tracking-tight font-bold text-[#191c1e] dark:text-white mb-2">Quản lý Tag</h1>
+            <p className="text-base text-[#464554] dark:text-neutral-400">Phân loại và tổ chức kiến thức của bạn một cách khoa học.</p>
+          </div>
+          <button 
+            onClick={openCreate}
+            className="bg-[#4648d4] text-white px-6 py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 hover:bg-[#6063ee] active:scale-95 transition-all shadow-md shadow-indigo-100 dark:shadow-none w-full md:w-auto"
+          >
+            <PlusIcon className="h-5 w-5" />
+            Thêm Tag mới
+          </button>
+        </header>
+
+        {/* Search & Filter */}
+        <div className="mb-8 flex gap-4">
+          <div className="relative flex-1 max-w-md group">
+            <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-[#4648d4] transition-colors h-5 w-5" />
+            <input 
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-white dark:bg-neutral-900 border border-[#eceef0] dark:border-neutral-800 rounded-xl pl-12 pr-4 py-3 text-base focus:ring-2 focus:ring-[#4648d4]/20 focus:border-[#4648d4] outline-hidden transition-all text-[#191c1e] dark:text-white placeholder:text-[#767586]" 
+              placeholder="Tìm kiếm tag..." 
+            />
+          </div>
+        </div>
+
+        {error && (
+          <div className="mb-8 rounded-xl border border-red-100 bg-red-50/50 p-4 text-sm font-medium text-red-600 flex items-start gap-2.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-red-500 mt-2 shrink-0" />
+            <p>{error}</p>
+          </div>
+        )}
+
+        {/* Tag List */}
+        {filteredTags.length === 0 ? (
+          <div className="text-center py-20 border-2 border-dashed border-slate-200 dark:border-neutral-800 rounded-2xl bg-white/50 dark:bg-neutral-900/50">
+            <TagIcon className="h-12 w-12 text-slate-300 dark:text-neutral-600 mx-auto mb-4" />
+            <p className="text-base font-medium text-slate-600 dark:text-slate-400">Không tìm thấy tag nào.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredTags.map(tagObj => {
+              const tag = tagObj.name;
+              
+              // Map color from our predefined list
+              const predefinedColorMap: Record<string, string> = {
+                primary: "bg-[#4648d4] text-[#4648d4] border-[#4648d4]",
+                emerald: "bg-[#10b981] text-[#10b981] border-[#10b981]",
+                amber: "bg-[#f59e0b] text-[#f59e0b] border-[#f59e0b]",
+                red: "bg-[#ef4444] text-[#ef4444] border-[#ef4444]",
+                pink: "bg-[#ec4899] text-[#ec4899] border-[#ec4899]",
+                violet: "bg-[#8b5cf6] text-[#8b5cf6] border-[#8b5cf6]",
+                cyan: "bg-[#06b6d4] text-[#06b6d4] border-[#06b6d4]",
+              };
+              
+              let colorCls = tagObj.color && predefinedColorMap[tagObj.color] 
+                  ? predefinedColorMap[tagObj.color] 
+                  : getColorClasses(tag);
+                  
+              const [bg, txt, brd] = colorCls.split(' ')
+              
+              return (
+                <div key={tag} className={`bg-white dark:bg-neutral-900 rounded-2xl p-6 group transition-all duration-300 hover:shadow-lg hover:-translate-y-1 border-l-2 ${brd} relative overflow-hidden flex flex-col justify-between h-[160px]`}>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className={`w-4 h-4 rounded-full ${bg} shrink-0`}></div>
+                      <h3 className="text-[24px] font-semibold text-[#191c1e] dark:text-white truncate" title={tag}>{tag}</h3>
+                    </div>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button onClick={() => openEdit(tagObj)} className="p-2 text-slate-400 hover:text-[#4648d4] hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-lg transition-colors">
+                        <PencilIcon className="h-5 w-5" />
+                      </button>
+                      <button onClick={() => handleDelete(tag)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors">
+                        <Trash2Icon className="h-5 w-5" />
+                      </button>
+                    </div>
+                  </div>
+                  {tagObj.description && (
+                    <p className="text-[14px] text-[#464554] dark:text-neutral-400 line-clamp-1 mb-2">{tagObj.description}</p>
+                  )}
+                  <div className="flex items-center justify-between mt-auto">
+                    <span className="text-[12px] text-[#464554] dark:text-neutral-400 flex items-center gap-1.5 font-medium">
+                      <NotebookIcon className="h-4 w-4 text-slate-400" />
+                      {tagCounts[tag] || 0} ghi chú
+                    </span>
+                    <span className={`text-[14px] font-medium ${txt} opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 cursor-pointer hover:underline`}>
+                      Xem chi tiết <ArrowRightIcon className="h-4 w-4" />
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Analytics Illustration */}
+        <section className="mt-16 bg-[#eceef0] dark:bg-neutral-800 rounded-[2rem] p-8 md:p-12 flex flex-col md:flex-row items-center gap-12 overflow-hidden relative">
+          <div className="flex-1 z-10">
+            <h2 className="text-[32px] font-bold text-[#191c1e] dark:text-white mb-4">Góc nhìn thông minh</h2>
+            <p className="text-base text-[#464554] dark:text-neutral-300 mb-8 max-w-lg">ZenNotes tự động phân tích tần suất sử dụng Tag để gợi ý cách sắp xếp tối ưu cho quy trình làm việc của bạn.</p>
+            <div className="flex gap-4">
+              <div className="bg-white dark:bg-neutral-900 p-5 rounded-xl shadow-xs flex-1">
+                <p className="text-[12px] text-[#767586] dark:text-neutral-500 mb-1 font-semibold uppercase tracking-wider">Tag phổ biến nhất</p>
+                <p className="text-[24px] font-bold text-[#4648d4] dark:text-indigo-400 line-clamp-1" title={mostPopularTag}>
+                  {mostPopularTag !== "Chưa có" ? `#${mostPopularTag}` : mostPopularTag}
+                </p>
+              </div>
+              <div className="bg-white dark:bg-neutral-900 p-5 rounded-xl shadow-xs flex-1">
+                <p className="text-[12px] text-[#767586] dark:text-neutral-500 mb-1 font-semibold uppercase tracking-wider">Tổng số Tag</p>
+                <p className="text-[24px] font-bold text-[#191c1e] dark:text-white">{apiTags.length}</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex-1 w-full max-w-sm flex justify-center z-10">
+            <div className="aspect-square bg-white dark:bg-neutral-900 rounded-full flex items-center justify-center relative overflow-hidden shadow-inner border border-[#eceef0] dark:border-neutral-700 h-[240px] w-[240px]">
+              <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#4648d4 1.5px, transparent 1.5px)', backgroundSize: '24px 24px' }}></div>
+              <div className="relative w-32 h-32 rounded-full bg-[#4648d4]/10 border-2 border-[#4648d4]/20 flex items-center justify-center animate-pulse">
+                <SparklesIcon className="text-[#4648d4] dark:text-indigo-400 h-16 w-16" />
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {/* Dialog Form for Create/Edit */}
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="sm:max-w-[480px] rounded-xl p-0 border border-[#eceef0] dark:border-neutral-800 shadow-[0_8px_32px_rgba(0,0,0,0.08)] bg-white dark:bg-neutral-900 overflow-hidden gap-0">
+          <DialogHeader className="px-8 pt-8 pb-4 text-left">
+            <DialogTitle className="text-[24px] font-bold text-[#191c1e] dark:text-white">
+              {modalMode === "create" ? "Thêm Tag mới" : "Chỉnh sửa Tag"}
+            </DialogTitle>
+            <p className="text-sm text-[#464554] dark:text-neutral-400 mt-1">
+              Gán nhãn để phân loại nội dung dễ dàng hơn.
+            </p>
+          </DialogHeader>
+          
+          <form onSubmit={handleSaveModal} className="px-8 pb-8 flex flex-col gap-6">
+            <div className="flex flex-col gap-2">
+              <label className="text-[14px] font-medium text-[#464554] dark:text-neutral-300 px-1">Tên Tag</label>
+              <input 
+                autoFocus
+                type="text" 
+                value={tagNameValue}
+                onChange={(e) => setTagNameValue(e.target.value)}
+                required
+                placeholder="Ví dụ: Công việc, Dự án..."
+                className="w-full bg-[#f2f4f6] dark:bg-neutral-800 border-none rounded-lg p-3 text-base focus:ring-2 focus:ring-[#4648d4]/20 outline-none transition-all text-[#191c1e] dark:text-white placeholder:text-slate-400"
+              />
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <label className="text-[14px] font-medium text-[#464554] dark:text-neutral-300 px-1">Màu sắc đại diện</label>
+              <div className="flex flex-wrap gap-3">
+                {[
+                  { id: 'primary', color: 'bg-[#4648d4]' },
+                  { id: 'emerald', color: 'bg-[#10b981]' },
+                  { id: 'amber', color: 'bg-[#f59e0b]' },
+                  { id: 'red', color: 'bg-[#ef4444]' },
+                  { id: 'pink', color: 'bg-[#ec4899]' },
+                  { id: 'violet', color: 'bg-[#8b5cf6]' },
+                  { id: 'cyan', color: 'bg-[#06b6d4]' }
+                ].map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setSelectedColor(c.id)}
+                    className={`w-8 h-8 rounded-full ${c.color} transition-transform hover:scale-110 active:scale-95 cursor-pointer ${
+                      selectedColor === c.id ? 'ring-2 ring-offset-2 ring-[#4648d4] dark:ring-offset-neutral-900' : ''
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-[14px] font-medium text-[#464554] dark:text-neutral-300 px-1">Mô tả ngắn</label>
+              <textarea 
+                value={tagDescription}
+                onChange={(e) => setTagDescription(e.target.value)}
+                placeholder="Nhập mô tả cho tag này..."
+                rows={3}
+                className="w-full bg-[#f2f4f6] dark:bg-neutral-800 border-none rounded-lg p-3 text-base focus:ring-2 focus:ring-[#4648d4]/20 outline-none transition-all placeholder:text-slate-400 resize-none text-[#191c1e] dark:text-white"
+              />
+            </div>
+            
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button 
+                type="button" 
+                onClick={() => setIsModalOpen(false)}
+                className="px-6 py-2.5 rounded-lg text-[14px] font-medium text-[#464554] dark:text-neutral-300 hover:bg-[#eceef0] dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button 
+                type="submit" 
+                disabled={isLoading || !tagNameValue.trim()}
+                className="bg-[#4648d4] text-white px-8 py-2.5 rounded-lg text-[14px] font-medium shadow-sm hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer border-none"
+              >
+                {isLoading && <Loader2Icon className="h-4 w-4 animate-spin" />}
+                {modalMode === "create" ? "Tạo Tag" : "Lưu thay đổi"}
+              </button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

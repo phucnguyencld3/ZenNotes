@@ -5,55 +5,60 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { User } from '../../generated/prisma';
-import { PrismaService } from '../prisma/prisma.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UserDto } from './dto/user.dto';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    @InjectRepository(User)
+    private usersRepository: Repository<User>,
+  ) {}
 
   async create(dto: CreateUserDto): Promise<UserDto> {
-    const exists = await this.prisma.user.findUnique({
+    const exists = await this.usersRepository.findOne({
       where: { email: dto.email },
     });
     if (exists) throw new ConflictException('Email already in use');
 
     const hashed = await bcrypt.hash(dto.password, 10);
 
-    const user = await this.prisma.user.create({
-      data: {
-        fullName: dto.fullName,
-        email: dto.email,
-        password: hashed,
-      },
+    const user = this.usersRepository.create({
+      fullName: dto.fullName,
+      email: dto.email,
+      password: hashed,
     });
+    await this.usersRepository.save(user);
 
     return this.toDto(user);
   }
 
   findByEmail(email: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { email } });
+    return this.usersRepository.findOne({ where: { email } });
   }
 
   async findById(id: string): Promise<UserDto> {
-    const user = await this.prisma.user.findUnique({ where: { id } });
+    const user = await this.usersRepository.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
     return this.toDto(user);
   }
 
   async updateProfile(id: string, fullName: string): Promise<UserDto> {
-    const user = await this.prisma.user.update({
-      where: { id },
-      data: { fullName },
-    });
+    const user = await this.usersRepository.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
+
+    user.fullName = fullName;
+    await this.usersRepository.save(user);
+
     return this.toDto(user);
   }
 
   async changePassword(id: string, oldPassword: string, newPassword: string): Promise<void> {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.usersRepository.findOne({
       where: { id },
     });
     if (!user) throw new NotFoundException('User not found');
@@ -62,17 +67,15 @@ export class UsersService {
     if (!isMatch) throw new UnauthorizedException('Mật khẩu cũ không chính xác');
 
     const hashed = await bcrypt.hash(newPassword, 10);
-    await this.prisma.user.update({
-      where: { id },
-      data: { password: hashed },
-    });
+    user.password = hashed;
+    await this.usersRepository.save(user);
   }
 
   async changePasswordDirect(id: string, newPasswordHashed: string): Promise<void> {
-    await this.prisma.user.update({
-      where: { id },
-      data: { password: newPasswordHashed },
-    });
+    const user = await this.usersRepository.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
+    user.password = newPasswordHashed;
+    await this.usersRepository.save(user);
   }
 
   toDto(
@@ -87,4 +90,3 @@ export class UsersService {
     return dto;
   }
 }
-

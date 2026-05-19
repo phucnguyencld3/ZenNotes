@@ -16,6 +16,12 @@ export class NoteTag {
   @Column({ unique: true, length: 100 })
   name: string;
 
+  @Column({ nullable: true })
+  color: string;
+
+  @Column({ type: 'text', nullable: true })
+  description: string;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamp with time zone' })
   createdAt: Date;
 

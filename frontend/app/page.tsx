@@ -15,14 +15,13 @@ import {
   DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { createNote, deleteNote, listNotes, listTags, type Note, updateNote } from "@/lib/notes"
+import { createNote, deleteNote, listNotes, listTags, renameTag, deleteTag, createTagApi, type Note, type Tag, updateNote } from "@/lib/notes"
 import {
   BellIcon, Loader2Icon, NotebookIcon,
   PencilIcon, PlusIcon, SearchIcon, Trash2Icon,
   StarIcon, ArchiveIcon, SettingsIcon, ClockIcon,
   TypeIcon, PaperclipIcon, ImageIcon, Share2Icon, MoreVerticalIcon, FilesIcon,
-  UserIcon, LogOutIcon, SparklesIcon, ArrowRightIcon, Lock, ShieldCheck,
-  LayoutGridIcon, ChevronDownIcon, CalendarIcon, FilterXIcon
+  UserIcon, LogOutIcon, SparklesIcon, ArrowRightIcon, Lock, ShieldCheck
 } from "lucide-react"
 
 
@@ -110,7 +109,7 @@ export default function HomePage() {
   const [tagInput, setTagInput] = React.useState("")
 
   // Modern dashboard state variables
-  const [activeTab, setActiveTab] = React.useState<"all" | "favorites" | "trash" | "archive" | "settings" | "categories">("all")
+  const [activeTab, setActiveTab] = React.useState<"all" | "favorites" | "trash" | "archive" | "settings">("all")
   const [selectedCategory, setSelectedCategory] = React.useState<string>("All")
   const [selectedNote, setSelectedNote] = React.useState<Note | null>(null)
   const [starredIds, setStarredIds] = React.useState<string[]>([])
@@ -120,14 +119,11 @@ export default function HomePage() {
   const [draftContent, setDraftContent] = React.useState("")
   const [draftTags, setDraftTags] = React.useState<string[]>([])
   const [draftTagInput, setDraftTagInput] = React.useState("")
-  const [apiTags, setApiTags] = React.useState<string[]>([])
+  const [apiTags, setApiTags] = React.useState<Tag[]>([])
 
   const systemTags = React.useMemo(() => {
-    const counts: Record<string, number> = {}
-    apiTags.forEach(t => {
-      const name = typeof t === "string" ? t.toLowerCase() : (t as any)?.name?.toLowerCase()
-      if (name) counts[name] = 0
-    })
+    const all = new Set<string>()
+    apiTags.forEach(t => all.add(t.toLowerCase()))
     notes.forEach((note) => {
       if (note.tags) {
         note.tags.forEach((t) => {
@@ -468,6 +464,14 @@ export default function HomePage() {
             <span>Cài đặt</span>
           </div>
           
+          <div 
+            onClick={() => setActiveTab("tags")}
+            className={`flex items-center gap-3 px-6 py-3 font-medium text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] ${activeTab === "tags" ? "text-[#4648d4] bg-white dark:bg-neutral-800 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
+          >
+            <TagIcon className="h-4.5 w-4.5" />
+            <span>Tags</span>
+          </div>
+          
           <UserMenu user={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
       </aside>
@@ -478,15 +482,6 @@ export default function HomePage() {
           currentUser={currentUser} 
           setCurrentUser={setCurrentUser} 
           token={token} 
-        />
-      ) : activeTab === "categories" ? (
-        <CategoriesWorkspace
-          notes={notes}
-          systemTags={systemTags}
-          apiTags={apiTags}
-          setApiTags={setApiTags}
-          token={token}
-          loadNotes={loadNotes}
         />
       ) : (
         <>
@@ -1016,6 +1011,13 @@ export default function HomePage() {
               <UserIcon className="h-3.5 w-3.5" />
               Hồ sơ cá nhân
             </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => setActiveTab("tags")} 
+              className="flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold rounded-xl text-slate-600 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+            >
+              <TagIcon className="h-3.5 w-3.5" />
+              Quản lý Tags
+            </DropdownMenuItem>
             <DropdownMenuSeparator className="my-1 border-slate-100 dark:border-neutral-800" />
             <DropdownMenuItem 
               onClick={handleLogout} 
@@ -1508,282 +1510,6 @@ function SettingsWorkspace({ currentUser, setCurrentUser, token }: SettingsWorks
           )}
 
         </div>
-      </div>
-    </div>
-  )
-}
-
-interface CategoriesWorkspaceProps {
-  notes: Note[]
-  systemTags: string[]
-  apiTags: string[]
-  setApiTags: React.Dispatch<React.SetStateAction<string[]>>
-  token: string | null
-  loadNotes: () => Promise<void>
-}
-
-function CategoriesWorkspace({ 
-  notes, 
-  systemTags, 
-  apiTags, 
-  setApiTags, 
-  token,
-  loadNotes
-}: CategoriesWorkspaceProps) {
-  const [newCategoryName, setNewCategoryName] = React.useState("")
-  const [editingCategory, setEditingCategory] = React.useState<string | null>(null)
-  const [editCategoryName, setEditCategoryName] = React.useState("")
-  const [isProcessing, setIsProcessing] = React.useState(false)
-  const [msg, setMsg] = React.useState<{ type: "success" | "error"; text: string } | null>(null)
-
-  // Create a new category
-  async function handleCreateCategory(e: React.FormEvent) {
-    e.preventDefault()
-    const name = newCategoryName.trim().toLowerCase()
-    if (!name) return
-
-    if (systemTags.includes(name)) {
-      setMsg({ type: "error", text: "Danh mục này đã tồn tại!" })
-      return
-    }
-
-    setIsProcessing(true)
-    setMsg(null)
-    try {
-      if (!apiTags.includes(name)) {
-        setApiTags(prev => [...prev, name])
-      }
-      setMsg({ type: "success", text: `Đã thêm danh mục mới: #${name}` })
-      setNewCategoryName("")
-    } catch (err) {
-      setMsg({ type: "error", text: "Thêm danh mục thất bại." })
-    } finally {
-      setIsProcessing(false)
-    }
-  }
-
-  // Update category (rename it in all notes that use it)
-  async function handleRenameCategory(oldName: string) {
-    const newName = editCategoryName.trim().toLowerCase()
-    if (!newName || newName === oldName) {
-      setEditingCategory(null)
-      return
-    }
-
-    if (systemTags.includes(newName) && newName !== oldName) {
-      setMsg({ type: "error", text: "Tên danh mục mới đã tồn tại!" })
-      return
-    }
-
-    setIsProcessing(true)
-    setMsg(null)
-    try {
-      if (!token) return
-
-      // Find all notes using this tag
-      const notesToUpdate = notes.filter(n => n.tags?.some(t => t.toLowerCase() === oldName.toLowerCase()))
-      
-      // Update each note's tags
-      await Promise.all(
-        notesToUpdate.map(async (note) => {
-          const newTags = (note.tags ?? []).map(t => t.toLowerCase() === oldName.toLowerCase() ? newName : t)
-          await updateNote(token, note.id, { tags: newTags })
-        })
-      )
-
-      // Update apiTags
-      setApiTags(prev => prev.map(t => t.toLowerCase() === oldName.toLowerCase() ? newName : t))
-
-      // Refresh notes list
-      await loadNotes()
-
-      setMsg({ type: "success", text: `Đã đổi tên danh mục từ #${oldName} sang #${newName}` })
-      setEditingCategory(null)
-    } catch (err) {
-      setMsg({ type: "error", text: err instanceof Error ? err.message : "Đổi tên danh mục thất bại." })
-    } finally {
-      setIsProcessing(false)
-    }
-  }
-
-  // Delete category (remove it from all notes)
-  async function handleDeleteCategory(name: string) {
-    if (!confirm(`Bạn có chắc chắn muốn xóa danh mục #${name}? Ghi chú thuộc danh mục này sẽ không bị xóa nhưng sẽ bị loại khỏi danh mục.`)) {
-      return
-    }
-
-    setIsProcessing(true)
-    setMsg(null)
-    try {
-      if (!token) return
-
-      // Find all notes using this tag
-      const notesToUpdate = notes.filter(n => n.tags?.some(t => t.toLowerCase() === name.toLowerCase()))
-      
-      // Update each note's tags to remove this tag
-      await Promise.all(
-        notesToUpdate.map(async (note) => {
-          const newTags = (note.tags ?? []).filter(t => t.toLowerCase() !== name.toLowerCase())
-          await updateNote(token, note.id, { tags: newTags })
-        })
-      )
-
-      // Update apiTags
-      setApiTags(prev => prev.filter(t => t.toLowerCase() !== name.toLowerCase()))
-
-      // Refresh notes list
-      await loadNotes()
-
-      setMsg({ type: "success", text: `Đã xóa danh mục: #${name}` })
-    } catch (err) {
-      setMsg({ type: "error", text: err instanceof Error ? err.message : "Xóa danh mục thất bại." })
-    } finally {
-      setIsProcessing(false)
-    }
-  }
-
-  return (
-    <div className="flex-1 flex flex-col h-full bg-[#f7f9fb] dark:bg-neutral-950 overflow-hidden">
-      {/* Categories Header */}
-      <header className="p-8 border-b border-[#eceef0] dark:border-neutral-800 bg-[#f7f9fb]/50 dark:bg-neutral-950/50 backdrop-blur-md shrink-0">
-        <h1 className="text-2xl font-bold text-[#191c1e] dark:text-white tracking-tight flex items-center gap-2">
-          <FilesIcon className="h-6 w-6 text-[#4648d4]" />
-          Quản lý danh mục
-        </h1>
-        <p className="text-xs text-[#464554] dark:text-neutral-450 mt-1">
-          Tạo mới, chỉnh sửa tên hoặc xóa các danh mục phân loại ghi chú của bạn
-        </p>
-      </header>
-
-      {/* Categories Workspace Container */}
-      <div className="flex-1 flex overflow-hidden p-8 max-w-5xl w-full mx-auto gap-8">
-        
-        {/* Left column: Add category form */}
-        <div className="w-[300px] shrink-0 bg-white dark:bg-neutral-900/40 rounded-2xl border border-slate-100 dark:border-neutral-800 p-6 h-fit shadow-xs">
-          <form onSubmit={handleCreateCategory} className="space-y-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-1">Thêm danh mục mới</h3>
-              <p className="text-[11px] text-slate-500">Tạo danh mục mới để gán cho các ghi chú của bạn</p>
-            </div>
-
-            <div className="grid gap-1.5">
-              <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400" htmlFor="new-cat-name">Tên danh mục</label>
-              <input
-                id="new-cat-name"
-                type="text"
-                required
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                className="h-10 rounded-xl border border-slate-200 dark:border-neutral-800 bg-transparent px-3 py-2 text-xs outline-hidden focus:border-[#4648d4] focus:ring-4 focus:ring-[#4648d4]/10 transition-all placeholder:text-slate-400"
-                placeholder="Ví dụ: học tập, công việc..."
-              />
-            </div>
-
-            <Button 
-              type="submit" 
-              disabled={isProcessing || !newCategoryName.trim()}
-              className="w-full rounded-xl h-10 bg-[#4648d4] hover:bg-[#6063ee] text-white text-xs font-semibold shadow-md shadow-indigo-100 dark:shadow-none cursor-pointer border-none flex items-center justify-center gap-1.5 active:scale-95 transition-all"
-            >
-              {isProcessing && <Loader2Icon className="h-3 w-3 animate-spin" />}
-              Thêm danh mục
-            </Button>
-          </form>
-        </div>
-
-        {/* Right column: Category list & CRUD operations */}
-        <div className="flex-grow bg-white dark:bg-neutral-900/40 rounded-2xl border border-slate-100 dark:border-neutral-800 p-6 flex flex-col overflow-hidden shadow-xs">
-          <div className="mb-4">
-            <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-1">Danh sách danh mục ({systemTags.length})</h3>
-            <p className="text-[11px] text-slate-500">Danh sách các danh mục phân loại ghi chú hiện tại của bạn</p>
-          </div>
-
-          {msg && (
-            <div className={`mb-4 p-4 rounded-xl text-xs font-semibold flex items-center gap-2 border ${msg.type === "success" ? "bg-emerald-50 border-emerald-100 text-emerald-700" : "bg-red-50 border-red-100 text-red-600"}`}>
-              {msg.type === "success" ? <ShieldCheck className="h-4.5 w-4.5" /> : <div className="h-1.5 w-1.5 rounded-full bg-red-500" />}
-              <span>{msg.text}</span>
-            </div>
-          )}
-
-          {/* Categories List */}
-          <div className="flex-1 overflow-y-auto pr-1.5 flex flex-col gap-2 custom-scrollbar">
-            {systemTags.length === 0 ? (
-              <div className="text-center py-12 text-slate-400 text-xs italic">
-                Chưa có danh mục nào được tạo.
-              </div>
-            ) : (
-              systemTags.map((tag) => {
-                const count = notes.filter(n => n.tags?.some(t => t.toLowerCase() === tag.toLowerCase())).length
-                const isEditing = editingCategory === tag
-
-                return (
-                  <div 
-                    key={tag}
-                    className="flex items-center justify-between p-3.5 bg-slate-50/50 dark:bg-neutral-900/20 border border-slate-100 dark:border-neutral-800/80 rounded-xl transition-all hover:bg-slate-50 dark:hover:bg-neutral-800/40"
-                  >
-                    {isEditing ? (
-                      <div className="flex items-center gap-2 flex-grow mr-4">
-                        <input
-                          type="text"
-                          value={editCategoryName}
-                          onChange={(e) => setEditCategoryName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleRenameCategory(tag)
-                            if (e.key === "Escape") setEditingCategory(null)
-                          }}
-                          className="h-9 px-3 rounded-lg border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-xs outline-hidden focus:border-[#4648d4] focus:ring-1 focus:ring-[#4648d4]/10 transition-all flex-grow text-slate-800 dark:text-slate-250"
-                          placeholder="Nhập tên mới..."
-                          autoFocus
-                        />
-                        <button
-                          onClick={() => handleRenameCategory(tag)}
-                          disabled={isProcessing}
-                          className="px-3 h-9 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 cursor-pointer transition-colors border-none"
-                        >
-                          Lưu
-                        </button>
-                        <button
-                          onClick={() => setEditingCategory(null)}
-                          className="px-3 h-9 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-slate-600 dark:text-slate-350 cursor-pointer transition-colors border-none"
-                        >
-                          Hủy
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2.5 overflow-hidden">
-                          <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">#{tag}</span>
-                          <span className="text-[10px] bg-slate-200/50 dark:bg-neutral-800 text-slate-500 dark:text-neutral-450 px-2 py-0.5 rounded-full font-bold">
-                            {count} ghi chú
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            onClick={() => {
-                              setEditingCategory(tag)
-                              setEditCategoryName(tag)
-                            }}
-                            className="p-2 hover:bg-[#eceef0] dark:hover:bg-neutral-800 rounded-lg text-slate-500 hover:text-[#4648d4] cursor-pointer transition-colors border-none bg-transparent"
-                            title="Sửa tên danh mục"
-                          >
-                            <PencilIcon className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteCategory(tag)}
-                            className="p-2 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg text-slate-500 hover:text-rose-600 cursor-pointer transition-colors border-none bg-transparent"
-                            title="Xóa danh mục"
-                          >
-                            <Trash2Icon className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </div>
-
       </div>
     </div>
   )

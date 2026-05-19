@@ -21,7 +21,8 @@ import {
   PencilIcon, PlusIcon, SearchIcon, Trash2Icon,
   StarIcon, ArchiveIcon, SettingsIcon, ClockIcon,
   TypeIcon, PaperclipIcon, ImageIcon, Share2Icon, MoreVerticalIcon, FilesIcon,
-  UserIcon, LogOutIcon, SparklesIcon, ArrowRightIcon, Lock, ShieldCheck
+  UserIcon, LogOutIcon, SparklesIcon, ArrowRightIcon, Lock, ShieldCheck,
+  LayoutGridIcon, ChevronDownIcon, CalendarIcon, FilterXIcon, Tag as TagIcon
 } from "lucide-react"
 
 
@@ -109,7 +110,7 @@ export default function HomePage() {
   const [tagInput, setTagInput] = React.useState("")
 
   // Modern dashboard state variables
-  const [activeTab, setActiveTab] = React.useState<"all" | "favorites" | "trash" | "archive" | "settings">("all")
+  const [activeTab, setActiveTab] = React.useState<"all" | "favorites" | "trash" | "archive" | "settings" | "tags">("all")
   const [selectedCategory, setSelectedCategory] = React.useState<string>("All")
   const [selectedNote, setSelectedNote] = React.useState<Note | null>(null)
   const [starredIds, setStarredIds] = React.useState<string[]>([])
@@ -122,8 +123,11 @@ export default function HomePage() {
   const [apiTags, setApiTags] = React.useState<Tag[]>([])
 
   const systemTags = React.useMemo(() => {
-    const all = new Set<string>()
-    apiTags.forEach(t => all.add(t.toLowerCase()))
+    const counts: Record<string, number> = {}
+    apiTags.forEach(t => {
+      const name = t.name.toLowerCase()
+      counts[name] = 0
+    })
     notes.forEach((note) => {
       if (note.tags) {
         note.tags.forEach((t) => {
@@ -449,11 +453,11 @@ export default function HomePage() {
           </div>
 
           <div 
-            onClick={() => setActiveTab("categories")}
-            className={`flex items-center gap-3 px-6 py-3 font-medium text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] ${activeTab === "categories" ? "text-[#4648d4] bg-white dark:bg-neutral-800 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
+            onClick={() => setActiveTab("tags")}
+            className={`flex items-center gap-3 px-6 py-3 font-medium text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] ${activeTab === "tags" ? "text-[#4648d4] bg-white dark:bg-neutral-800 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
           >
-            <FilesIcon className="h-4.5 w-4.5" />
-            <span>Quản lý danh mục</span>
+            <TagIcon className="h-4.5 w-4.5" />
+            <span>Quản lý Tags</span>
           </div>
 
           <div 
@@ -464,24 +468,24 @@ export default function HomePage() {
             <span>Cài đặt</span>
           </div>
           
-          <div 
-            onClick={() => setActiveTab("tags")}
-            className={`flex items-center gap-3 px-6 py-3 font-medium text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] ${activeTab === "tags" ? "text-[#4648d4] bg-white dark:bg-neutral-800 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
-          >
-            <TagIcon className="h-4.5 w-4.5" />
-            <span>Tags</span>
-          </div>
-          
           <UserMenu user={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
       </aside>
 
-      {/* Main Content Workspace: Settings, Categories or Notes List + Editor */}
+      {/* Main Content Workspace: Settings, Tags or Notes List + Editor */}
       {activeTab === "settings" ? (
         <SettingsWorkspace 
           currentUser={currentUser} 
           setCurrentUser={setCurrentUser} 
           token={token} 
+        />
+      ) : activeTab === "tags" ? (
+        <TagsWorkspace
+          notes={notes}
+          apiTags={apiTags}
+          setApiTags={setApiTags}
+          token={token}
+          loadNotes={loadNotes}
         />
       ) : (
         <>
@@ -1174,7 +1178,7 @@ function UserMenu({
 }: { 
   user: AuthUser | null
   activeTab: string
-  setActiveTab: (tab: "all" | "favorites" | "trash" | "archive" | "settings" | "categories") => void
+  setActiveTab: (tab: "all" | "favorites" | "trash" | "archive" | "settings" | "tags") => void
   iconOnly?: boolean
 }) {
   const initials = user?.fullName
@@ -1510,6 +1514,263 @@ function SettingsWorkspace({ currentUser, setCurrentUser, token }: SettingsWorks
           )}
 
         </div>
+      </div>
+    </div>
+  )
+}
+
+interface TagsWorkspaceProps {
+  notes: Note[]
+  apiTags: Tag[]
+  setApiTags: React.Dispatch<React.SetStateAction<Tag[]>>
+  token: string | null
+  loadNotes: () => Promise<void>
+}
+
+function TagsWorkspace({ 
+  notes, 
+  apiTags, 
+  setApiTags, 
+  token,
+  loadNotes
+}: TagsWorkspaceProps) {
+  const [newTagName, setNewTagName] = React.useState("")
+  const [editingTag, setEditingTag] = React.useState<string | null>(null)
+  const [editTagName, setEditTagName] = React.useState("")
+  const [isProcessing, setIsProcessing] = React.useState(false)
+  const [msg, setMsg] = React.useState<{ type: "success" | "error"; text: string } | null>(null)
+
+  // Create tag
+  async function handleCreateTag(e: React.FormEvent) {
+    e.preventDefault()
+    const name = newTagName.trim()
+    if (!name || !token) return
+
+    const lowerName = name.toLowerCase()
+    if (apiTags.some(t => t.name.toLowerCase() === lowerName)) {
+      setMsg({ type: "error", text: "Tag này đã tồn tại!" })
+      return
+    }
+
+    setIsProcessing(true)
+    setMsg(null)
+    try {
+      await createTagApi(token, name)
+      const updated = await listTags(token)
+      setApiTags(updated)
+      setMsg({ type: "success", text: `Đã thêm tag mới: #${name}` })
+      setNewTagName("")
+    } catch (err) {
+      setMsg({ type: "error", text: err instanceof Error ? err.message : "Thêm tag thất bại." })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  // Rename tag
+  async function handleRenameTag(oldName: string) {
+    const newName = editTagName.trim()
+    if (!newName || newName === oldName || !token) {
+      setEditingTag(null)
+      return
+    }
+
+    const lowerNew = newName.toLowerCase()
+    const lowerOld = oldName.toLowerCase()
+    if (apiTags.some(t => t.name.toLowerCase() === lowerNew) && lowerNew !== lowerOld) {
+      setMsg({ type: "error", text: "Tên tag mới đã tồn tại!" })
+      return
+    }
+
+    setIsProcessing(true)
+    setMsg(null)
+    try {
+      await renameTag(token, oldName, newName)
+      
+      const [updatedTags] = await Promise.all([
+        listTags(token),
+        loadNotes()
+      ])
+      setApiTags(updatedTags)
+
+      setMsg({ type: "success", text: `Đã đổi tên tag từ #${oldName} sang #${newName}` })
+      setEditingTag(null)
+    } catch (err) {
+      setMsg({ type: "error", text: err instanceof Error ? err.message : "Đổi tên tag thất bại." })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  // Delete tag
+  async function handleDeleteTag(name: string) {
+    if (!token) return
+    if (!confirm(`Bạn có chắc chắn muốn xóa tag #${name}? Ghi chú thuộc tag này sẽ không bị xóa nhưng sẽ bị loại khỏi tag.`)) {
+      return
+    }
+
+    setIsProcessing(true)
+    setMsg(null)
+    try {
+      await deleteTag(token, name)
+      
+      const [updatedTags] = await Promise.all([
+        listTags(token),
+        loadNotes()
+      ])
+      setApiTags(updatedTags)
+
+      setMsg({ type: "success", text: `Đã xóa tag: #${name}` })
+    } catch (err) {
+      setMsg({ type: "error", text: err instanceof Error ? err.message : "Xóa tag thất bại." })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  return (
+    <div className="flex-1 flex flex-col h-full bg-[#f7f9fb] dark:bg-neutral-950 overflow-hidden">
+      {/* Tags Header */}
+      <header className="p-8 border-b border-[#eceef0] dark:border-neutral-800 bg-[#f7f9fb]/50 dark:bg-neutral-950/50 backdrop-blur-md shrink-0">
+        <h1 className="text-2xl font-bold text-[#191c1e] dark:text-white tracking-tight flex items-center gap-2">
+          <TagIcon className="h-6 w-6 text-[#4648d4]" />
+          Quản lý Tags
+        </h1>
+        <p className="text-xs text-[#464554] dark:text-neutral-450 mt-1">
+          Tạo mới, chỉnh sửa tên hoặc xóa các tags phân loại ghi chú của bạn
+        </p>
+      </header>
+
+      {/* Tags Workspace Container */}
+      <div className="flex-1 flex overflow-hidden p-8 max-w-5xl w-full mx-auto gap-8">
+        
+        {/* Left column: Add tag form */}
+        <div className="w-[300px] shrink-0 bg-white dark:bg-neutral-900/40 rounded-2xl border border-slate-100 dark:border-neutral-800 p-6 h-fit shadow-xs">
+          <form onSubmit={handleCreateTag} className="space-y-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-1">Thêm tag mới</h3>
+              <p className="text-[11px] text-slate-500">Tạo tag mới để gán cho các ghi chú của bạn</p>
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400" htmlFor="new-tag-name">Tên tag</label>
+              <input
+                id="new-tag-name"
+                type="text"
+                required
+                value={newTagName}
+                onChange={(e) => setNewTagName(e.target.value)}
+                className="h-10 rounded-xl border border-slate-200 dark:border-neutral-800 bg-transparent px-3 py-2 text-xs outline-hidden focus:border-[#4648d4] focus:ring-4 focus:ring-[#4648d4]/10 transition-all placeholder:text-slate-400"
+                placeholder="Ví dụ: học tập, công việc..."
+              />
+            </div>
+
+            <Button 
+              type="submit" 
+              disabled={isProcessing || !newTagName.trim()}
+              className="w-full rounded-xl h-10 bg-[#4648d4] hover:bg-[#6063ee] text-white text-xs font-semibold shadow-md shadow-indigo-100 dark:shadow-none cursor-pointer border-none flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+            >
+              {isProcessing && <Loader2Icon className="h-3 w-3 animate-spin" />}
+              Thêm tag
+            </Button>
+          </form>
+        </div>
+
+        {/* Right column: Tag list & CRUD operations */}
+        <div className="flex-grow bg-white dark:bg-neutral-900/40 rounded-2xl border border-slate-100 dark:border-neutral-800 p-6 flex flex-col overflow-hidden shadow-xs">
+          <div className="mb-4">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-1">Danh sách tags ({apiTags.length})</h3>
+            <p className="text-[11px] text-slate-500">Danh sách các tags phân loại ghi chú hiện tại của bạn</p>
+          </div>
+
+          {msg && (
+            <div className={`mb-4 p-4 rounded-xl text-xs font-semibold flex items-center gap-2 border ${msg.type === "success" ? "bg-emerald-50 border-emerald-100 text-emerald-700" : "bg-red-50 border-red-100 text-red-600"}`}>
+              {msg.type === "success" ? <ShieldCheck className="h-4.5 w-4.5" /> : <div className="h-1.5 w-1.5 rounded-full bg-red-500" />}
+              <span>{msg.text}</span>
+            </div>
+          )}
+
+          {/* Tags List */}
+          <div className="flex-1 overflow-y-auto pr-1.5 flex flex-col gap-2 custom-scrollbar">
+            {apiTags.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 text-xs italic">
+                Chưa có tag nào được tạo.
+              </div>
+            ) : (
+              apiTags.map((tagObj) => {
+                const tag = tagObj.name
+                const count = notes.filter(n => n.tags?.some(t => t.toLowerCase() === tag.toLowerCase())).length
+                const isEditing = editingTag === tag
+
+                return (
+                  <div 
+                    key={tag}
+                    className="flex items-center justify-between p-3.5 bg-slate-50/50 dark:bg-neutral-900/20 border border-slate-100 dark:border-neutral-800/80 rounded-xl transition-all hover:bg-slate-50 dark:hover:bg-neutral-800/40"
+                  >
+                    {isEditing ? (
+                      <div className="flex items-center gap-2 flex-grow mr-4">
+                        <input
+                          type="text"
+                          value={editTagName}
+                          onChange={(e) => setEditTagName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleRenameTag(tag)
+                            if (e.key === "Escape") setEditingTag(null)
+                          }}
+                          className="h-9 px-3 rounded-lg border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-xs outline-hidden focus:border-[#4648d4] focus:ring-1 focus:ring-[#4648d4]/10 transition-all flex-grow text-slate-800 dark:text-slate-250"
+                          placeholder="Nhập tên mới..."
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => handleRenameTag(tag)}
+                          disabled={isProcessing}
+                          className="px-3 h-9 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 cursor-pointer transition-colors border-none"
+                        >
+                          Lưu
+                        </button>
+                        <button
+                          onClick={() => setEditingTag(null)}
+                          className="px-3 h-9 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-slate-600 dark:text-slate-350 cursor-pointer transition-colors border-none"
+                        >
+                          Hủy
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2.5 overflow-hidden">
+                          <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">#{tag}</span>
+                          <span className="text-[10px] bg-slate-200/50 dark:bg-neutral-800 text-slate-500 dark:text-neutral-450 px-2 py-0.5 rounded-full font-bold">
+                            {count} ghi chú
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => {
+                              setEditingTag(tag)
+                              setEditTagName(tag)
+                            }}
+                            className="p-2 hover:bg-[#eceef0] dark:hover:bg-neutral-800 rounded-lg text-slate-500 hover:text-[#4648d4] cursor-pointer transition-colors border-none bg-transparent"
+                            title="Sửa tên tag"
+                          >
+                            <PencilIcon className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTag(tag)}
+                            className="p-2 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg text-slate-500 hover:text-rose-600 cursor-pointer transition-colors border-none bg-transparent"
+                            title="Xóa tag"
+                          >
+                            <Trash2Icon className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+
       </div>
     </div>
   )

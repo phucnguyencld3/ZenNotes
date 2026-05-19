@@ -52,9 +52,43 @@ export class NotesController {
 
   @Get('tags')
   @ApiOperation({ summary: 'Get all tags used by the user' })
-  @ApiResponse({ status: 200, type: [String] })
-  findAllTags(@Req() req: AuthenticatedRequest): Promise<string[]> {
+  findAllTags(@Req() req: AuthenticatedRequest) {
     return this.notesService.findAllTagsByUser(req.user.id);
+  }
+
+  @Post('tags')
+  @ApiOperation({ summary: 'Create a new tag' })
+  @ApiBody({ schema: { type: 'object', properties: { name: { type: 'string' }, color: { type: 'string' }, description: { type: 'string' } } } })
+  @ApiResponse({ status: 201, description: 'Created successfully' })
+  async createTag(
+    @Body('name') name: string,
+    @Body('color') color?: string,
+    @Body('description') description?: string,
+  ): Promise<{ message: string }> {
+    await this.notesService.createTag(name, color, description);
+    return { message: 'Created successfully' };
+  }
+
+  @Delete('tags/:name')
+  @ApiOperation({ summary: 'Delete a tag' })
+  @ApiResponse({ status: 200, description: 'Deleted successfully' })
+  async removeTag(@Param('name') name: string): Promise<{ message: string }> {
+    await this.notesService.removeTag(name);
+    return { message: 'Deleted successfully' };
+  }
+
+  @Patch('tags/:name')
+  @ApiOperation({ summary: 'Rename/update a tag' })
+  @ApiBody({ schema: { type: 'object', properties: { newName: { type: 'string' }, color: { type: 'string' }, description: { type: 'string' } } } })
+  @ApiResponse({ status: 200, description: 'Updated successfully' })
+  async renameTag(
+    @Param('name') name: string,
+    @Body('newName') newName: string,
+    @Body('color') color?: string,
+    @Body('description') description?: string,
+  ): Promise<{ message: string }> {
+    await this.notesService.renameTag(name, newName, color, description);
+    return { message: 'Updated successfully' };
   }
 
   @Get(':id')

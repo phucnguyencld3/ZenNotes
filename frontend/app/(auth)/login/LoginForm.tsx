@@ -14,7 +14,7 @@ export function LoginForm() {
   React.useEffect(() => {
     const token = getAccessToken()
     if (token) {
-      router.push("/")
+      router.replace("/")
     }
   }, [router])
 
@@ -41,7 +41,7 @@ export function LoginForm() {
     try {
       const result = await login({ email, password })
       saveAuthSession(result)
-      router.push("/")
+      router.replace("/")
       router.refresh()
     } catch (err) {
       const message = err instanceof Error ? err.message : "Đăng nhập thất bại"

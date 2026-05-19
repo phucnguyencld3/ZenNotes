@@ -21,7 +21,8 @@ import {
   PencilIcon, PlusIcon, SearchIcon, Trash2Icon,
   StarIcon, ArchiveIcon, SettingsIcon, ClockIcon,
   TypeIcon, PaperclipIcon, ImageIcon, Share2Icon, MoreVerticalIcon, FilesIcon,
-  UserIcon, LogOutIcon, SparklesIcon, ArrowRightIcon, Lock, ShieldCheck
+  UserIcon, LogOutIcon, SparklesIcon, ArrowRightIcon, Lock, ShieldCheck,
+  LayoutGridIcon, ChevronDownIcon, CalendarIcon, FilterXIcon
 } from "lucide-react"
 
 
@@ -95,7 +96,9 @@ function formatNoteDate(dateStr: string) {
 export default function HomePage() {
   const [currentUser, setCurrentUser] = React.useState<AuthUser | null>(null)
   const [notes, setNotes] = React.useState<Note[]>([])
-  const [search, setSearch] = React.useState("")
+  const [search, setSearch] = React.useState("");
+  const [timeFilter, setTimeFilter] = React.useState("");
+  const [isEditorClosing, setIsEditorClosing] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
@@ -107,7 +110,7 @@ export default function HomePage() {
   const [tagInput, setTagInput] = React.useState("")
 
   // Modern dashboard state variables
-  const [activeTab, setActiveTab] = React.useState<"all" | "favorites" | "trash" | "archive" | "settings">("all")
+  const [activeTab, setActiveTab] = React.useState<"all" | "favorites" | "trash" | "archive" | "settings" | "categories">("all")
   const [selectedCategory, setSelectedCategory] = React.useState<string>("All")
   const [selectedNote, setSelectedNote] = React.useState<Note | null>(null)
   const [starredIds, setStarredIds] = React.useState<string[]>([])
@@ -120,14 +123,21 @@ export default function HomePage() {
   const [apiTags, setApiTags] = React.useState<string[]>([])
 
   const systemTags = React.useMemo(() => {
-    const all = new Set<string>()
-    apiTags.forEach(t => all.add(t.toLowerCase()))
+    const counts: Record<string, number> = {}
+    apiTags.forEach(t => {
+      const name = typeof t === "string" ? t.toLowerCase() : (t as any)?.name?.toLowerCase()
+      if (name) counts[name] = 0
+    })
     notes.forEach((note) => {
       if (note.tags) {
-        note.tags.forEach((t) => all.add(t.toLowerCase()))
+        note.tags.forEach((t) => {
+          const name = t.toLowerCase()
+          counts[name] = (counts[name] || 0) + 1
+        })
       }
     })
-    return Array.from(all)
+    // Sort by count descending
+    return Object.keys(counts).sort((a, b) => counts[b] - counts[a])
   }, [apiTags, notes])
 
   const searchInputRef = React.useRef<HTMLInputElement>(null)
@@ -199,12 +209,10 @@ export default function HomePage() {
     void loadNotes()
   }, [loadNotes])
 
-  // Automatically select the first note on mount
+  // Clear selected note when switching tabs or categories
   React.useEffect(() => {
-    if (notes.length > 0 && !selectedNote) {
-      setSelectedNote(notes[0])
-    }
-  }, [notes, selectedNote])
+    setSelectedNote(null)
+  }, [activeTab, selectedCategory])
 
   // Sync draft states when selected note changes
   React.useEffect(() => {
@@ -266,8 +274,26 @@ export default function HomePage() {
       )
     }
 
+    // Time filter
+    if (timeFilter) {
+      const filterParts = timeFilter.split("-");
+      if (filterParts.length === 3) {
+        const fYear = parseInt(filterParts[0], 10);
+        const fMonth = parseInt(filterParts[1], 10) - 1; // 0-indexed month
+        const fDay = parseInt(filterParts[2], 10);
+
+        list = list.filter((n) => {
+          const uDate = new Date(n.updatedAt);
+          const cDate = new Date(n.createdAt);
+          const matchU = uDate.getFullYear() === fYear && uDate.getMonth() === fMonth && uDate.getDate() === fDay;
+          const matchC = cDate.getFullYear() === fYear && cDate.getMonth() === fMonth && cDate.getDate() === fDay;
+          return matchU || matchC;
+        });
+      }
+    }
+
     return list
-  }, [notes, activeTab, selectedCategory, search, starredIds])
+  }, [notes, activeTab, selectedCategory, search, starredIds, timeFilter])
 
   function openCreateDialog() {
     setEditingNote(null)
@@ -370,8 +396,8 @@ export default function HomePage() {
       {/* Sidebar Navigation */}
       <aside className="hidden md:flex flex-col h-full w-[280px] bg-[#f2f4f6] dark:bg-neutral-900 py-8 shrink-0 border-r border-[#eceef0] dark:border-neutral-800">
         <div className="px-6 mb-10">
-          <h1 className="text-2xl font-bold text-[#4648d4] tracking-tight">ZenNotes</h1>
-          <p className="text-xs text-[#464554] dark:text-neutral-400 mt-1">Ahihi đồ ngốc</p>
+          <h1 className="text-2xl font-bold text-[#4648d4] tracking-tight">ZenNote</h1>
+          <p className="text-xs text-[#464554] dark:text-neutral-400 mt-1">NoteTaking</p>
         </div>
         
         {/* Create Note Button */}
@@ -386,13 +412,13 @@ export default function HomePage() {
         </div>
         
         {/* Navigation list */}
-        <nav className="flex-1 space-y-1">
+        <nav className="space-y-1 flex-1 overflow-y-auto">
           <div 
             onClick={() => { setActiveTab("all"); setSelectedCategory("All"); }}
-            className={`flex items-center gap-3 px-6 py-3 font-medium text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] ${activeTab === "all" ? "text-[#4648d4] bg-white dark:bg-neutral-800 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
+            className={`flex items-center gap-3 px-6 py-3 font-medium text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] ${activeTab === "all" && selectedCategory === "All" ? "text-[#4648d4] bg-white dark:bg-neutral-800 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
           >
             <NotebookIcon className="h-4.5 w-4.5" />
-            <span>All Notes</span>
+            <span>Tất cả ghi chú</span>
           </div>
           
           <div 
@@ -400,7 +426,7 @@ export default function HomePage() {
             className={`flex items-center gap-3 px-6 py-3 font-medium text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] ${activeTab === "favorites" ? "text-[#4648d4] bg-white dark:bg-neutral-800 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
           >
             <StarIcon className="h-4.5 w-4.5" />
-            <span>Favorites</span>
+            <span>Yêu thích</span>
           </div>
           
           <div 
@@ -408,14 +434,14 @@ export default function HomePage() {
             className={`flex items-center gap-3 px-6 py-3 font-medium text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] ${activeTab === "trash" ? "text-[#4648d4] bg-white dark:bg-neutral-800 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
           >
             <Trash2Icon className="h-4.5 w-4.5" />
-            <span>Trash</span>
+            <span>Thùng rác</span>
           </div>
         </nav>
         
         {/* Sidebar Footer / Library */}
-        <div className="mt-auto space-y-1">
-          <div className="px-6 py-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#767586] dark:text-neutral-500">Library</span>
+        <div className="mt-auto space-y-1 border-t border-[#eceef0]/60 dark:border-neutral-800/40 pt-4 shrink-0">
+          <div className="px-6 py-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#767586] dark:text-neutral-500">Thư viện</span>
           </div>
           
           <div 
@@ -423,219 +449,328 @@ export default function HomePage() {
             className={`flex items-center gap-3 px-6 py-3 font-medium text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] ${activeTab === "archive" ? "text-[#4648d4] bg-white dark:bg-neutral-800 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
           >
             <ArchiveIcon className="h-4.5 w-4.5" />
-            <span>Archive</span>
+            <span>Lưu trữ</span>
+          </div>
+
+          <div 
+            onClick={() => setActiveTab("categories")}
+            className={`flex items-center gap-3 px-6 py-3 font-medium text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] ${activeTab === "categories" ? "text-[#4648d4] bg-white dark:bg-neutral-800 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
+          >
+            <FilesIcon className="h-4.5 w-4.5" />
+            <span>Quản lý danh mục</span>
+          </div>
+
+          <div 
+            onClick={() => setActiveTab("settings")}
+            className={`flex items-center gap-3 px-6 py-3 font-medium text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] ${activeTab === "settings" ? "text-[#4648d4] bg-white dark:bg-neutral-800 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
+          >
+            <SettingsIcon className="h-4.5 w-4.5" />
+            <span>Cài đặt</span>
           </div>
           
           <UserMenu user={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
       </aside>
 
-      {/* Main Content Workspace: Settings or Notes List + Editor */}
+      {/* Main Content Workspace: Settings, Categories or Notes List + Editor */}
       {activeTab === "settings" ? (
         <SettingsWorkspace 
           currentUser={currentUser} 
           setCurrentUser={setCurrentUser} 
           token={token} 
         />
+      ) : activeTab === "categories" ? (
+        <CategoriesWorkspace
+          notes={notes}
+          systemTags={systemTags}
+          apiTags={apiTags}
+          setApiTags={setApiTags}
+          token={token}
+          loadNotes={loadNotes}
+        />
       ) : (
         <>
-          {/* Main Middle Column: Note List */}
-          <main className="flex-1 flex flex-col bg-[#f7f9fb] dark:bg-neutral-950 min-w-0 h-full overflow-hidden border-r border-[#eceef0] dark:border-neutral-800">
-        
-        {/* Header Search & Greeting */}
-        <header className="p-6 space-y-4 border-b border-[#eceef0] dark:border-neutral-800 bg-[#f7f9fb]/50 dark:bg-neutral-950/50 backdrop-blur-md shrink-0">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-bold tracking-tight text-[#191c1e] dark:text-white flex items-center gap-1.5">
-                Xin chào, {currentUser?.fullName ?? "bạn"}
-                <span className="inline-block animate-wave origin-[70%_70%] select-none"></span>
-              </h2>
-              <p className="text-xs text-[#464554] dark:text-neutral-400">
-                {activeTab === "favorites" ? "Ghi chú yêu thích của bạn" : activeTab === "trash" ? "Thùng rác ghi chú" : activeTab === "archive" ? "Kho lưu trữ ghi chú" : "Hôm nay bạn muốn ghi chú gì?"}
-              </p>
-            </div>
-            
-            <Button variant="ghost" size="icon" className="relative rounded-xl md:hidden text-slate-400 hover:text-slate-600">
-              <BellIcon className="h-5 w-5" />
-              <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-[#4648d4] animate-pulse" />
-            </Button>
-          </div>
+          {/* Main Content Area: scrollable canvas like giaodienhome */}
+          <main className={`transition-all duration-500 ease-in-out flex-1 overflow-y-auto bg-[#f7f9fb] dark:bg-neutral-950 h-full ${
+            selectedNote ? "hidden md:block md:w-[380px] lg:w-[420px] shrink-0 overflow-y-auto border-r border-[#eceef0] dark:border-neutral-800" : ""
+          }`}>
 
-          {/* Search bar input */}
-          <div className="relative group">
-            <SearchIcon className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-[#4648d4] transition-colors h-4 w-4" />
-            <input 
-              ref={searchInputRef}
-              type="text" 
-              className="w-full bg-[#f2f4f6] dark:bg-neutral-900 border-none rounded-xl py-3 pl-11 pr-12 focus:ring-2 focus:ring-[#4648d4]/20 outline-hidden font-medium text-sm text-[#191c1e] dark:text-white placeholder:text-[#767586] transition-all"
-              placeholder="Tìm kiếm ghi chú của bạn..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none select-none flex items-center gap-0.5">
-              <kbd className="h-5 px-1.5 rounded-md border border-slate-200/50 bg-slate-50 dark:border-neutral-800 dark:bg-neutral-900 text-[10px] font-semibold text-slate-400">Ctrl</kbd>
-              <kbd className="h-5 px-1.5 rounded-md border border-slate-200/50 bg-slate-50 dark:border-neutral-800 dark:bg-neutral-900 text-[10px] font-semibold text-slate-400">K</kbd>
-            </div>
-          </div>
-
-          {/* Filter Categories */}
-          <div className="flex gap-2 overflow-x-auto pb-1.5 custom-scrollbar">
-            <button 
-              onClick={() => { setActiveTab("all"); setSelectedCategory("All"); }}
-              className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide cursor-pointer transition-all duration-200 shrink-0 ${selectedCategory === "All" ? "bg-[#4648d4] text-white" : "bg-[#eceef0] dark:bg-neutral-900 text-[#464554] dark:text-neutral-350 hover:bg-[#c0c1ff]/30 dark:hover:bg-neutral-800"}`}
-            >
-              Tất cả
-            </button>
-            
-            {systemTags.length > 0 ? (
-              systemTags.map((tag) => {
-                const isActive = selectedCategory.toLowerCase() === tag.toLowerCase()
-                return (
-                  <button 
-                    key={tag}
-                    onClick={() => { setActiveTab("all"); setSelectedCategory(tag); }}
-                    className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide cursor-pointer transition-all duration-200 shrink-0 ${isActive ? "bg-[#4648d4] text-white" : "bg-[#eceef0] dark:bg-neutral-900 text-[#464554] dark:text-neutral-350 hover:bg-[#c0c1ff]/30 dark:hover:bg-neutral-800"}`}
-                  >
-                    #{tag}
-                  </button>
-                )
-              })
-            ) : (
-              (["Work", "Personal", "Ideas"] as const).map((cat) => {
-                const isActive = selectedCategory === cat
-                return (
-                  <button 
-                    key={cat}
-                    onClick={() => { setActiveTab("all"); setSelectedCategory(cat); }}
-                    className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide cursor-pointer transition-all duration-200 shrink-0 ${isActive ? "bg-[#4648d4] text-white" : "bg-[#eceef0] dark:bg-neutral-900 text-[#464554] dark:text-neutral-350 hover:bg-[#c0c1ff]/30 dark:hover:bg-neutral-800"}`}
-                  >
-                    {cat === "Work" ? "Công việc" : cat === "Personal" ? "Cá nhân" : "Ý tưởng"}
-                  </button>
-                )
-              })
-            )}
-          </div>
-        </header>
-
-        {/* Scrollable Note Cards */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4">
-          
-          {error ? (
-            <div className="rounded-xl border border-red-100 bg-red-50/50 p-3.5 text-xs font-medium text-red-600 flex items-start gap-2.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-red-500 mt-1.5 shrink-0" />
-              <p className="whitespace-pre-line leading-relaxed">{error}</p>
-            </div>
-          ) : null}
-
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-400">
-              <Loader2Icon className="h-6 w-6 animate-spin text-[#4648d4]" />
-              <span className="text-xs font-medium tracking-wide">Đang tải ghi chú của bạn...</span>
-            </div>
-          ) : null}
-
-          {!isLoading && displayNotes.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center rounded-2xl border border-dashed border-slate-200 dark:border-neutral-800 bg-slate-50/30 dark:bg-neutral-900/10 p-6">
-              <div className="bg-slate-100 dark:bg-neutral-800 p-4 rounded-2xl text-slate-400 mb-3 shadow-xs">
-                <NotebookIcon className="h-6 w-6" />
+            {/* Sticky TopAppBar */}
+            <header className="sticky top-0 z-10 w-full h-16 bg-[#f7f9fb]/80 dark:bg-neutral-950/80 backdrop-blur-md flex justify-between items-center px-6 border-b border-[#eceef0]/60 dark:border-neutral-800">
+              {/* Search */}
+              <div className="flex items-center gap-4 flex-1 max-w-2xl">
+                <div className="relative w-full group">
+                  <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#767586] group-focus-within:text-[#4648d4] transition-colors h-4 w-4" />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    className="w-full bg-[#f2f4f6] dark:bg-neutral-900 border-none rounded-full py-2 pl-10 pr-4 text-sm font-medium text-[#191c1e] dark:text-white focus:ring-2 focus:ring-[#4648d4]/20 outline-hidden placeholder:text-[#767586] transition-all"
+                    placeholder="Tìm kiếm ghi chú..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
               </div>
-              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-350">Không tìm thấy ghi chú nào</h3>
-              <p className="text-xs text-slate-400 mt-1.5 max-w-[240px] leading-relaxed">
-                {search.trim() ? "Thử đổi từ khóa khác." : "Hãy bắt đầu tạo ghi chú đầu tiên của bạn!"}
-              </p>
-            </div>
-          ) : null}
+              {/* Right actions */}
+              <div className="flex items-center gap-3 ml-4">
+                <button className="p-2 hover:bg-[#eceef0] dark:hover:bg-neutral-800 rounded-full transition-colors cursor-pointer" title="Grid View">
+                  <LayoutGridIcon className="h-5 w-5 text-[#464554] dark:text-neutral-400" />
+                </button>
+                <button 
+                  onClick={() => setActiveTab("settings")}
+                  className="p-2 hover:bg-[#eceef0] dark:hover:bg-neutral-800 rounded-full transition-colors cursor-pointer text-[#464554] dark:text-neutral-400"
+                  title="Cài đặt"
+                >
+                  <SettingsIcon className="h-5 w-5" />
+                </button>
+                <UserMenu user={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} iconOnly />
+              </div>
+            </header>
 
-          {displayNotes.map((note) => {
-            const isSelected = selectedNote?.id === note.id
-            const dateLabel = formatNoteDate(note.updatedAt)
-            const tag = getNoteTag(note.title, note.content)
-            const isStarred = starredIds.includes(note.id)
+            {/* Page body */}
+            <div className="px-6 md:px-8 py-8">
 
-            return (
-              <div 
-                key={note.id}
-                onClick={() => setSelectedNote(note)}
-                className={`p-6 transition-all duration-200 rounded-xl cursor-pointer group border flex flex-col justify-between ${isSelected ? "bg-[#eceef0] dark:bg-neutral-800/80 border-[#4648d4] shadow-xs" : "bg-white dark:bg-neutral-900/40 border-transparent hover:bg-[#f2f4f6] dark:hover:bg-neutral-900/80"}`}
-              >
-                <div>
-                  <div className="flex justify-between items-start mb-2">
-                    <h3 className="font-semibold text-base text-[#191c1e] dark:text-white leading-tight line-clamp-1 flex-1 pr-2">
-                      {note.title}
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      {isStarred && (
-                        <StarIcon className="h-3.5 w-3.5 fill-[#4648d4] text-[#4648d4] shrink-0" />
-                      )}
-                      <span className="text-[11px] text-[#767586] dark:text-neutral-500 shrink-0 font-medium">{dateLabel}</span>
-                    </div>
+              {/* Page Title + Filter Bar */}
+              <div className="mb-8">
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-bold tracking-tight text-[#191c1e] dark:text-white">
+                      {activeTab === "favorites" ? "Ghi chú yêu thích" : 
+                       activeTab === "trash" ? "Thùng rác" : 
+                       activeTab === "archive" ? "Lưu trữ" : 
+                       selectedCategory !== "All" ? `Danh mục: #${selectedCategory}` : "Tất cả ghi chú"}
+                    </h2>
+                    <p className="text-sm text-[#464554] dark:text-neutral-400 mt-1">
+                      {isLoading ? "Đang tải..." : `${displayNotes.length} ghi chú`}
+                    </p>
                   </div>
-                  
-                  <p className="text-xs text-[#464554] dark:text-neutral-450 line-clamp-2 leading-relaxed">
-                    {stripHtml(note.content || "") || <em className="text-slate-400 dark:text-slate-600 font-normal select-none">(Không có nội dung)</em>}
+
+                  {/* Filter Bar - 2 dropdowns + clear */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* Category dropdown */}
+                    <div className="relative">
+                      <select
+                        value={selectedCategory}
+                        onChange={(e) => { setActiveTab("all"); setSelectedCategory(e.target.value); }}
+                        className="appearance-none bg-[#f2f4f6] dark:bg-neutral-900 border-none rounded-xl py-2.5 pl-4 pr-9 text-sm font-medium text-[#464554] dark:text-neutral-300 cursor-pointer focus:ring-2 focus:ring-[#4648d4]/20 hover:bg-[#e6e8ea] dark:hover:bg-neutral-800 transition-colors outline-hidden"
+                      >
+                        <option value="All">Tất cả danh mục</option>
+                        {systemTags.map(tag => (
+                          <option key={tag} value={tag}>#{tag}</option>
+                        ))}
+                      </select>
+                      <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#767586]" />
+                    </div>
+
+                    {/* Date exact match */}
+                    <div className="relative">
+                      <input
+                        type="date"
+                        value={timeFilter}
+                        onChange={(e) => setTimeFilter(e.target.value)}
+                        onClick={(e) => {
+                          try {
+                            if ('showPicker' in e.currentTarget) {
+                              e.currentTarget.showPicker();
+                            }
+                          } catch (err) {}
+                        }}
+                        className="bg-[#f2f4f6] dark:bg-neutral-900 border-none rounded-xl py-2.5 pl-4 pr-3 text-sm font-medium text-[#464554] dark:text-neutral-300 cursor-pointer focus:ring-2 focus:ring-[#4648d4]/20 hover:bg-[#e6e8ea] dark:hover:bg-neutral-800 transition-colors outline-hidden min-w-[140px]"
+                      />
+                    </div>
+
+                    {/* Clear filters */}
+                    {(selectedCategory !== "All" || timeFilter !== "" || search.trim()) && (
+                      <button
+                        onClick={() => { setSelectedCategory("All"); setTimeFilter(""); setSearch(""); }}
+                        className="p-2.5 bg-[#f2f4f6] dark:bg-neutral-900 text-[#464554] dark:text-neutral-400 rounded-xl hover:bg-[#e6e8ea] dark:hover:bg-neutral-800 transition-colors"
+                        title="Xóa bộ lọc"
+                      >
+                        <FilterXIcon className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Error banner */}
+              {error && (
+                <div className="mb-4 rounded-xl border border-red-100 bg-red-50/50 p-3.5 text-xs font-medium text-red-600 flex items-start gap-2.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-red-500 mt-1.5 shrink-0" />
+                  <p className="whitespace-pre-line leading-relaxed">{error}</p>
+                </div>
+              )}
+
+              {/* Loading */}
+              {isLoading && (
+                <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
+                  <Loader2Icon className="h-6 w-6 animate-spin text-[#4648d4]" />
+                  <span className="text-xs font-medium">Đang tải ghi chú...</span>
+                </div>
+              )}
+
+              {/* Empty state */}
+              {!isLoading && displayNotes.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-20 text-center rounded-2xl border-2 border-dashed border-[#c7c4d7]/40 dark:border-neutral-800 p-6">
+                  <div className="w-14 h-14 rounded-full bg-[#eceef0] dark:bg-neutral-800 flex items-center justify-center mb-3">
+                    <NotebookIcon className="h-6 w-6 text-[#767586]" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-[#191c1e] dark:text-white">Không tìm thấy ghi chú nào</h3>
+                  <p className="text-xs text-[#767586] mt-1.5 max-w-[240px] leading-relaxed">
+                    {search.trim() ? "Thử đổi từ khóa khác." : "Hãy tạo ghi chú đầu tiên!"}
                   </p>
                 </div>
-                
-                <div className="mt-4 flex gap-2 justify-between items-center shrink-0">
-                  {note.tags && note.tags.length > 0 ? (
-                    <div className="flex flex-wrap gap-1 max-w-[70%]">
-                      {note.tags.map((t) => (
-                        <span 
-                          key={t} 
-                          className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/40 text-[#4648d4] dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/30 shrink-0 line-clamp-1"
-                        >
-                          #{t}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                      tag.name === "Cá nhân" ? "bg-[#86f2e4]/30 text-[#006f66]" :
-                      tag.name === "Ý tưởng" ? "bg-[#ffdcc5] text-[#703700]" :
-                      tag.name === "Công việc" || tag.name === "Học tập" ? "bg-[#e1e0ff] text-[#2f2ebe]" :
-                      "bg-slate-100 text-slate-700"
-                    }`}>
-                      {tag.name}
-                    </span>
-                  )}
-                  
-                  {/* Inline Action buttons on hover */}
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); toggleStar(note.id); }}
-                      className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-neutral-800 text-slate-400 hover:text-[#4648d4]"
-                      aria-label="Star note"
-                    >
-                      <StarIcon className={`h-3.5 w-3.5 ${isStarred ? "fill-[#4648d4] text-[#4648d4]" : ""}`} />
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); openEditDialog(note); }}
-                      className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-neutral-800 text-slate-400 hover:text-slate-700"
-                      aria-label="Edit note dialog"
-                    >
-                      <PencilIcon className="h-3.5 w-3.5" />
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); handleDeleteNote(note.id); }}
-                      className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-neutral-800 text-slate-400 hover:text-rose-600"
-                      aria-label="Delete note"
-                    >
-                      <Trash2Icon className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </main>
+              )}
 
-      {/* Right Column: Content Viewer / Editor */}
-      <section className="hidden lg:flex flex-col w-[45%] bg-white dark:bg-neutral-900/10 shrink-0 h-full overflow-hidden">
+              {/* Notes Bento Grid / compact list */}
+              {!isLoading && displayNotes.length > 0 && (
+                <div className={selectedNote
+                  ? "flex flex-col gap-3"
+                  : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                }>
+                  {displayNotes.map((note) => {
+                    const isSelected = selectedNote?.id === note.id
+                    const dateLabel = formatNoteDate(note.updatedAt)
+                    const tag = getNoteTag(note.title, note.content)
+                    const isStarred = starredIds.includes(note.id)
+
+                    return (
+                      <div
+                        key={note.id}
+                        onClick={() => setSelectedNote(note)}
+                        style={{ boxShadow: "0 4px 20px -2px rgba(0,0,0,0.05)" }}
+                        className={`bg-white dark:bg-neutral-900 rounded-xl border-l-2 p-6 flex flex-col cursor-pointer group active:scale-[0.99] transition-all duration-200 ${
+                          isSelected
+                            ? "border-[#4648d4] ring-1 ring-[#4648d4]/20"
+                            : "border-transparent hover:border-[#4648d4] hover:-translate-y-1 hover:shadow-lg"
+                        } ${selectedNote ? "min-h-0" : "min-h-[200px]"}`}
+                      >
+                        {/* Card top: tag badge + action icon */}
+                        <div className="flex justify-between items-start mb-3">
+                          {note.tags && note.tags.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {note.tags.slice(0, selectedNote ? 1 : 2).map((t) => (
+                                <span
+                                  key={t}
+                                  className="px-2.5 py-1 rounded-full bg-[#e1e0ff]/40 text-[#2f2ebe] dark:bg-indigo-950/40 dark:text-indigo-300 text-[11px] font-semibold tracking-wide uppercase"
+                                >
+                                  {t}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide uppercase ${
+                              tag.name === "Cá nhân" ? "bg-[#86f2e4]/30 text-[#006f66]" :
+                              tag.name === "Ý tưởng" ? "bg-[#ffdcc5]/50 text-[#703700]" :
+                              tag.name === "Công việc" || tag.name === "Học tập" ? "bg-[#e1e0ff]/40 text-[#2f2ebe]" :
+                              "bg-[#eceef0] text-[#464554]"
+                            }`}>
+                              {tag.name}
+                            </span>
+                          )}
+                          <div className="flex items-center gap-1.5">
+                            {isStarred && (
+                              <StarIcon className="h-4 w-4 fill-[#4648d4] text-[#4648d4]" />
+                            )}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-[#c7c4d7] hover:text-[#464554] dark:hover:text-neutral-300 cursor-pointer"
+                                  aria-label="More"
+                                >
+                                  <MoreVerticalIcon className="h-4 w-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40 rounded-xl">
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); toggleStar(note.id); }} className="cursor-pointer text-xs">
+                                  <StarIcon className="h-3.5 w-3.5 mr-2" />
+                                  {isStarred ? "Bỏ yêu thích" : "Yêu thích"}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openEditDialog(note); }} className="cursor-pointer text-xs">
+                                  <PencilIcon className="h-3.5 w-3.5 mr-2" />
+                                  Chỉnh sửa
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDeleteNote(note.id); }} className="cursor-pointer text-xs text-rose-600 focus:text-rose-600">
+                                  <Trash2Icon className="h-3.5 w-3.5 mr-2" />
+                                  Xóa
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+
+                        {/* Title */}
+                        <h3 className={`font-semibold text-[#191c1e] dark:text-white leading-snug line-clamp-1 mb-1.5 ${
+                          selectedNote ? "text-sm" : "text-base"
+                        }`}>
+                          {note.title}
+                        </h3>
+
+                        {/* Excerpt */}
+                        <p className={`text-[#464554] dark:text-neutral-400 leading-relaxed ${
+                          selectedNote ? "text-[11px] line-clamp-1 mb-2" : "text-xs line-clamp-2 mb-4"
+                        }`}>
+                          {stripHtml(note.content || "") || <em className="opacity-50">(Không có nội dung)</em>}
+                        </p>
+
+                        {/* Footer: date + star toggle */}
+                        <div className="mt-auto flex items-center justify-between pt-3 border-t border-[#eceef0]/60 dark:border-neutral-800/50">
+                          <span className="text-[11px] text-[#767586] dark:text-neutral-500 font-medium">{dateLabel}</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleStar(note.id); }}
+                            className="p-0.5 text-[#c7c4d7] hover:text-[#4648d4] dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                            aria-label="Star"
+                          >
+                            <StarIcon className={`h-4 w-4 ${isStarred ? "fill-[#4648d4] text-[#4648d4]" : ""}`} />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {/* Create new card (only in grid mode) */}
+                  {!selectedNote && (
+                    <div
+                      onClick={openCreateDialog}
+                      className="border-2 border-dashed border-[#c7c4d7]/40 dark:border-neutral-700 rounded-xl p-6 flex flex-col items-center justify-center text-[#464554] dark:text-neutral-400 hover:border-[#4648d4]/50 hover:bg-[#4648d4]/5 cursor-pointer transition-all gap-3 min-h-[200px]"
+                    >
+                      <div className="w-12 h-12 rounded-full bg-[#eceef0] dark:bg-neutral-800 flex items-center justify-center">
+                        <PlusIcon className="h-5 w-5 text-[#4648d4]" />
+                      </div>
+                      <span className="text-sm font-semibold">Tạo ghi chú mới</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </main>
+
+
+      {/* Editor Column - Only show when selectedNote is present */}
+      {(selectedNote || isEditorClosing) && (
+        <section className={`flex-1 flex flex-col bg-white dark:bg-neutral-900 h-full overflow-hidden ${isEditorClosing ? "animate-out fade-out slide-out-to-right-16 duration-500" : "animate-in fade-in slide-in-from-right-16 duration-500"}`}>
+
         
         {/* Editor Toolbar */}
-        <div className="h-16 flex items-center justify-between px-8 border-b border-[#eceef0] dark:border-neutral-800 shrink-0 bg-white dark:bg-transparent">
-          <div className="flex gap-4">
+        <div className="h-16 flex items-center justify-between px-6 border-b border-[#eceef0] dark:border-neutral-800 shrink-0 bg-white dark:bg-neutral-900">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => {
+                // Trigger closing animation
+                setIsEditorClosing(true);
+                setTimeout(() => {
+                  setSelectedNote(null);
+                  setIsEditorClosing(false);
+                }, 300); // match animation duration
+              }}
+              className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-[#4648d4] transition-colors cursor-pointer mr-2 px-3 py-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
+            >
+              <ArrowRightIcon className="h-4.5 w-4.5 rotate-180" />
+              Đóng
+            </button>
+            <div className="h-6 w-px bg-slate-200 dark:bg-neutral-800 mx-2" />
             <button className="text-[#464554] dark:text-neutral-400 hover:text-[#4648d4] transition-colors cursor-pointer" aria-label="Text format">
               <TypeIcon className="h-4.5 w-4.5" />
             </button>
@@ -733,12 +868,12 @@ export default function HomePage() {
                   onChange={(e) => setDraftTitle(e.target.value)}
                 />
                 
-                       {/* Tag Manager in Right Detail Panel */}
+               {/* Tag Manager in Right Detail Panel */}
                 <div className="mt-4 flex flex-col gap-1.5 shrink-0">
                   <div className="flex flex-wrap gap-1.5 items-center">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-neutral-500 select-none mr-1">Hashtags:</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-neutral-500 select-none mr-1">Danh mục:</span>
                     {draftTags.length === 0 ? (
-                      <span className="text-xs text-slate-400 dark:text-neutral-500 italic select-none">Chưa chọn tag</span>
+                      <span className="text-xs text-slate-400 dark:text-neutral-500 italic select-none">Chưa chọn danh mục</span>
                     ) : (
                       draftTags.map((t, idx) => (
                         <span 
@@ -758,10 +893,44 @@ export default function HomePage() {
                     )}
                   </div>
 
+                  {/* Add custom category inline */}
+                  <div className="mt-1 flex items-center gap-2 max-w-xs">
+                    <input
+                      type="text"
+                      placeholder="Thêm danh mục mới..."
+                      value={draftTagInput}
+                      onChange={(e) => setDraftTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const val = draftTagInput.trim().toLowerCase();
+                          if (val && !draftTags.includes(val)) {
+                            setDraftTags([...draftTags, val]);
+                          }
+                          setDraftTagInput("");
+                        }
+                      }}
+                      className="h-7 w-40 rounded-lg border border-slate-200 dark:border-neutral-800 bg-transparent px-2.5 text-[11px] outline-hidden focus:border-[#4648d4] focus:ring-1 focus:ring-[#4648d4]/10 transition-all placeholder:text-slate-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = draftTagInput.trim().toLowerCase();
+                        if (val && !draftTags.includes(val)) {
+                          setDraftTags([...draftTags, val]);
+                        }
+                        setDraftTagInput("");
+                      }}
+                      className="h-7 px-2.5 rounded-lg text-[10px] font-semibold bg-[#4648d4] text-white hover:bg-[#6063ee] cursor-pointer transition-colors border-none"
+                    >
+                      Thêm
+                    </button>
+                  </div>
+
                   {/* Available Tag Pills in Right Panel */}
                   {systemTags.filter(t => !draftTags.includes(t)).length > 0 ? (
                     <div className="mt-1 flex flex-wrap gap-1.5 items-center w-full">
-                      <span className="text-[9px] text-slate-400 dark:text-neutral-500 font-bold uppercase tracking-wider shrink-0 select-none mr-1">Tag có sẵn:</span>
+                      <span className="text-[9px] text-slate-400 dark:text-neutral-500 font-bold uppercase tracking-wider shrink-0 select-none mr-1">Danh mục có sẵn:</span>
                       {systemTags.filter(t => !draftTags.includes(t)).map(t => (
                         <button
                           key={t}
@@ -774,12 +943,11 @@ export default function HomePage() {
                       ))}
                     </div>
                   ) : (
-                    <div className="mt-1 text-[9px] text-slate-400 dark:text-neutral-500 font-semibold italic">Đã chọn hết tag có sẵn!</div>
+                    <div className="mt-1 text-[9px] text-slate-400 dark:text-neutral-500 font-semibold italic">Đã chọn hết danh mục có sẵn!</div>
                   )}
                 </div>
               </div>
               
-              {/* Rich Text Editor */}
               <div className="flex-1 px-8 pb-8 pt-4 overflow-hidden flex flex-col panel-editor-container">
                 <CKEditorCDN
                   value={draftContent}
@@ -790,8 +958,9 @@ export default function HomePage() {
           )}
         </div>
       </section>
-        </>
       )}
+    </>
+  )}
 
       {/* Mobile Navigation Shell BottomNavBar */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-neutral-900 flex justify-around items-center h-16 border-t border-[#eceef0] dark:border-neutral-800 px-6 z-50">
@@ -800,7 +969,7 @@ export default function HomePage() {
           className={`flex flex-col items-center justify-center gap-1 cursor-pointer ${activeTab === "all" ? "text-[#4648d4]" : "text-[#464554] dark:text-neutral-400"}`}
         >
           <NotebookIcon className="h-5 w-5" />
-          <span className="text-[10px] font-semibold">Notes</span>
+          <span className="text-[10px] font-semibold">Ghi chú</span>
         </button>
         
         <button 
@@ -808,7 +977,7 @@ export default function HomePage() {
           className="flex flex-col items-center justify-center gap-1 text-[#464554] dark:text-neutral-400 cursor-pointer"
         >
           <SearchIcon className="h-5 w-5" />
-          <span className="text-[10px] font-semibold">Search</span>
+          <span className="text-[10px] font-semibold">Tìm kiếm</span>
         </button>
         
         {/* Floating Mobile Add Button */}
@@ -824,7 +993,7 @@ export default function HomePage() {
           className={`flex flex-col items-center justify-center gap-1 cursor-pointer ${activeTab === "favorites" ? "text-[#4648d4]" : "text-[#464554] dark:text-neutral-400"}`}
         >
           <StarIcon className="h-5 w-5" />
-          <span className="text-[10px] font-semibold">Starred</span>
+          <span className="text-[10px] font-semibold">Yêu thích</span>
         </button>
         
         {/* Trigger settings */}
@@ -834,7 +1003,7 @@ export default function HomePage() {
               className={`flex flex-col items-center justify-center gap-1 cursor-pointer ${activeTab === "settings" ? "text-[#4648d4]" : "text-[#464554] dark:text-neutral-400"}`}
             >
               <SettingsIcon className="h-5 w-5" />
-              <span className="text-[10px] font-semibold">Settings</span>
+              <span className="text-[10px] font-semibold">Cài đặt</span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48 p-1.5 rounded-2xl border border-slate-100 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md shadow-2xl">
@@ -890,10 +1059,10 @@ export default function HomePage() {
 
               {/* Tag Manager in Dialog */}
               <div className="grid gap-1.5 shrink-0">
-                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Hashtags (Chọn từ danh sách có sẵn dưới đây)</label>
+                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Danh mục (Chọn từ danh sách có sẵn hoặc tự nhập thêm mới)</label>
                 <div className="flex flex-wrap gap-1.5 p-2.5 bg-slate-50/50 dark:bg-neutral-850/40 border border-slate-150 dark:border-neutral-800/80 rounded-xl min-h-[44px] items-center">
                   {tags.length === 0 ? (
-                    <span className="text-xs text-slate-400 dark:text-neutral-500 italic select-none">Chưa chọn tag nào</span>
+                    <span className="text-xs text-slate-400 dark:text-neutral-500 italic select-none">Chưa chọn danh mục nào</span>
                   ) : (
                     tags.map((t, idx) => (
                       <span 
@@ -913,23 +1082,57 @@ export default function HomePage() {
                   )}
                 </div>
 
+                {/* Input to add new Category */}
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Thêm danh mục mới..."
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const val = tagInput.trim().toLowerCase();
+                        if (val && !tags.includes(val)) {
+                          setTags([...tags, val]);
+                        }
+                        setTagInput("");
+                      }
+                    }}
+                    className="h-8 w-48 rounded-xl border border-slate-200 dark:border-neutral-800 bg-transparent px-3 text-xs outline-hidden focus:border-[#4648d4] focus:ring-1 focus:ring-[#4648d4]/10 transition-all placeholder:text-slate-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const val = tagInput.trim().toLowerCase();
+                      if (val && !tags.includes(val)) {
+                        setTags([...tags, val]);
+                      }
+                      setTagInput("");
+                    }}
+                    className="px-3 h-8 rounded-xl text-xs font-semibold bg-[#4648d4] text-white hover:bg-[#6063ee] cursor-pointer transition-colors border-none"
+                  >
+                    Thêm
+                  </button>
+                </div>
+
                 {/* Available Tag Pills Quick Select */}
                 {systemTags.filter(t => !tags.includes(t)).length > 0 ? (
                   <div className="mt-1.5 flex flex-wrap gap-1 items-center">
-                    <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-bold uppercase tracking-wider mr-1 select-none">Tag có sẵn:</span>
+                    <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-bold uppercase tracking-wider mr-1 select-none">Danh mục có sẵn:</span>
                     {systemTags.filter(t => !tags.includes(t)).map(t => (
                       <button
                         key={t}
                         type="button"
                         onClick={() => setTags([...tags, t])}
-                        className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-neutral-800 hover:bg-indigo-50 hover:text-[#4648d4] dark:hover:bg-indigo-950/40 dark:hover:text-indigo-300 text-slate-650 dark:text-neutral-350 cursor-pointer transition-colors border-none"
+                        className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-neutral-850 hover:bg-indigo-50 hover:text-[#4648d4] dark:hover:bg-indigo-950/40 dark:hover:text-indigo-300 text-slate-650 dark:text-neutral-350 cursor-pointer transition-colors border-none"
                       >
                         +{t}
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <div className="mt-1.5 text-[10px] text-slate-400 dark:text-neutral-500 font-semibold italic">Đã chọn hết tất cả tag có sẵn!</div>
+                  <div className="mt-1.5 text-[10px] text-slate-400 dark:text-neutral-500 font-semibold italic">Đã chọn hết tất cả danh mục!</div>
                 )}
               </div>
               
@@ -964,11 +1167,13 @@ export default function HomePage() {
 function UserMenu({ 
   user, 
   activeTab, 
-  setActiveTab 
+  setActiveTab,
+  iconOnly = false
 }: { 
   user: AuthUser | null
   activeTab: string
-  setActiveTab: (tab: "all" | "favorites" | "trash" | "archive" | "settings") => void
+  setActiveTab: (tab: "all" | "favorites" | "trash" | "archive" | "settings" | "categories") => void
+  iconOnly?: boolean
 }) {
   const initials = user?.fullName
     ? user.fullName.split(" ").filter(Boolean).slice(-2).map((w) => w[0].toUpperCase()).join("")
@@ -982,19 +1187,32 @@ function UserMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <div 
-          className={`flex items-center justify-between px-6 py-3 font-semibold text-sm cursor-pointer transition-all duration-200 border-l-2 active:scale-[0.98] shrink-0 select-none ${activeTab === "settings" ? "text-[#4648d4] bg-white dark:bg-neutral-850 border-[#4648d4]" : "text-[#464554] dark:text-neutral-400 border-transparent hover:bg-[#eceef0] dark:hover:bg-neutral-850"}`}
-        >
-          <div className="flex items-center gap-3">
-            <SettingsIcon className="h-4.5 w-4.5" />
-            <span>Settings</span>
+        {iconOnly ? (
+          <button className="h-8 w-8 rounded-full overflow-hidden cursor-pointer active:scale-95 transition-all outline-hidden border-none p-0 bg-transparent flex items-center justify-center">
+            <Avatar className="h-8 w-8">
+              <AvatarFallback className="bg-[#4648d4] text-white text-xs font-bold select-none">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+          </button>
+        ) : (
+          <div 
+            className="flex items-center justify-between px-5 py-2.5 mx-4 mt-2 rounded-xl cursor-pointer hover:bg-[#eceef0] dark:hover:bg-neutral-850 active:scale-[0.98] transition-all duration-200 select-none border border-transparent"
+          >
+            <div className="flex items-center gap-3 overflow-hidden">
+              <Avatar className="h-8 w-8 shrink-0">
+                <AvatarFallback className="bg-[#4648d4] text-white text-xs font-bold select-none">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex flex-col text-left overflow-hidden">
+                <span className="text-xs font-semibold text-[#191c1e] dark:text-white truncate max-w-[120px]">{user?.fullName ?? "Người dùng"}</span>
+                <span className="text-[10px] text-[#767586] dark:text-neutral-500 truncate max-w-[120px]">{user?.email ?? ""}</span>
+              </div>
+            </div>
+            <ChevronDownIcon className="h-4 w-4 text-[#767586] shrink-0" />
           </div>
-          <Avatar className="h-6 w-6">
-            <AvatarFallback className="bg-[#4648d4] text-white text-[9px] font-bold select-none">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-        </div>
+        )}
       </DropdownMenuTrigger>
       
       <DropdownMenuContent align="end" className="w-52 p-1.5 rounded-2xl border border-slate-100 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md shadow-2xl">
@@ -1290,6 +1508,282 @@ function SettingsWorkspace({ currentUser, setCurrentUser, token }: SettingsWorks
           )}
 
         </div>
+      </div>
+    </div>
+  )
+}
+
+interface CategoriesWorkspaceProps {
+  notes: Note[]
+  systemTags: string[]
+  apiTags: string[]
+  setApiTags: React.Dispatch<React.SetStateAction<string[]>>
+  token: string | null
+  loadNotes: () => Promise<void>
+}
+
+function CategoriesWorkspace({ 
+  notes, 
+  systemTags, 
+  apiTags, 
+  setApiTags, 
+  token,
+  loadNotes
+}: CategoriesWorkspaceProps) {
+  const [newCategoryName, setNewCategoryName] = React.useState("")
+  const [editingCategory, setEditingCategory] = React.useState<string | null>(null)
+  const [editCategoryName, setEditCategoryName] = React.useState("")
+  const [isProcessing, setIsProcessing] = React.useState(false)
+  const [msg, setMsg] = React.useState<{ type: "success" | "error"; text: string } | null>(null)
+
+  // Create a new category
+  async function handleCreateCategory(e: React.FormEvent) {
+    e.preventDefault()
+    const name = newCategoryName.trim().toLowerCase()
+    if (!name) return
+
+    if (systemTags.includes(name)) {
+      setMsg({ type: "error", text: "Danh mục này đã tồn tại!" })
+      return
+    }
+
+    setIsProcessing(true)
+    setMsg(null)
+    try {
+      if (!apiTags.includes(name)) {
+        setApiTags(prev => [...prev, name])
+      }
+      setMsg({ type: "success", text: `Đã thêm danh mục mới: #${name}` })
+      setNewCategoryName("")
+    } catch (err) {
+      setMsg({ type: "error", text: "Thêm danh mục thất bại." })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  // Update category (rename it in all notes that use it)
+  async function handleRenameCategory(oldName: string) {
+    const newName = editCategoryName.trim().toLowerCase()
+    if (!newName || newName === oldName) {
+      setEditingCategory(null)
+      return
+    }
+
+    if (systemTags.includes(newName) && newName !== oldName) {
+      setMsg({ type: "error", text: "Tên danh mục mới đã tồn tại!" })
+      return
+    }
+
+    setIsProcessing(true)
+    setMsg(null)
+    try {
+      if (!token) return
+
+      // Find all notes using this tag
+      const notesToUpdate = notes.filter(n => n.tags?.some(t => t.toLowerCase() === oldName.toLowerCase()))
+      
+      // Update each note's tags
+      await Promise.all(
+        notesToUpdate.map(async (note) => {
+          const newTags = (note.tags ?? []).map(t => t.toLowerCase() === oldName.toLowerCase() ? newName : t)
+          await updateNote(token, note.id, { tags: newTags })
+        })
+      )
+
+      // Update apiTags
+      setApiTags(prev => prev.map(t => t.toLowerCase() === oldName.toLowerCase() ? newName : t))
+
+      // Refresh notes list
+      await loadNotes()
+
+      setMsg({ type: "success", text: `Đã đổi tên danh mục từ #${oldName} sang #${newName}` })
+      setEditingCategory(null)
+    } catch (err) {
+      setMsg({ type: "error", text: err instanceof Error ? err.message : "Đổi tên danh mục thất bại." })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  // Delete category (remove it from all notes)
+  async function handleDeleteCategory(name: string) {
+    if (!confirm(`Bạn có chắc chắn muốn xóa danh mục #${name}? Ghi chú thuộc danh mục này sẽ không bị xóa nhưng sẽ bị loại khỏi danh mục.`)) {
+      return
+    }
+
+    setIsProcessing(true)
+    setMsg(null)
+    try {
+      if (!token) return
+
+      // Find all notes using this tag
+      const notesToUpdate = notes.filter(n => n.tags?.some(t => t.toLowerCase() === name.toLowerCase()))
+      
+      // Update each note's tags to remove this tag
+      await Promise.all(
+        notesToUpdate.map(async (note) => {
+          const newTags = (note.tags ?? []).filter(t => t.toLowerCase() !== name.toLowerCase())
+          await updateNote(token, note.id, { tags: newTags })
+        })
+      )
+
+      // Update apiTags
+      setApiTags(prev => prev.filter(t => t.toLowerCase() !== name.toLowerCase()))
+
+      // Refresh notes list
+      await loadNotes()
+
+      setMsg({ type: "success", text: `Đã xóa danh mục: #${name}` })
+    } catch (err) {
+      setMsg({ type: "error", text: err instanceof Error ? err.message : "Xóa danh mục thất bại." })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  return (
+    <div className="flex-1 flex flex-col h-full bg-[#f7f9fb] dark:bg-neutral-950 overflow-hidden">
+      {/* Categories Header */}
+      <header className="p-8 border-b border-[#eceef0] dark:border-neutral-800 bg-[#f7f9fb]/50 dark:bg-neutral-950/50 backdrop-blur-md shrink-0">
+        <h1 className="text-2xl font-bold text-[#191c1e] dark:text-white tracking-tight flex items-center gap-2">
+          <FilesIcon className="h-6 w-6 text-[#4648d4]" />
+          Quản lý danh mục
+        </h1>
+        <p className="text-xs text-[#464554] dark:text-neutral-450 mt-1">
+          Tạo mới, chỉnh sửa tên hoặc xóa các danh mục phân loại ghi chú của bạn
+        </p>
+      </header>
+
+      {/* Categories Workspace Container */}
+      <div className="flex-1 flex overflow-hidden p-8 max-w-5xl w-full mx-auto gap-8">
+        
+        {/* Left column: Add category form */}
+        <div className="w-[300px] shrink-0 bg-white dark:bg-neutral-900/40 rounded-2xl border border-slate-100 dark:border-neutral-800 p-6 h-fit shadow-xs">
+          <form onSubmit={handleCreateCategory} className="space-y-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-1">Thêm danh mục mới</h3>
+              <p className="text-[11px] text-slate-500">Tạo danh mục mới để gán cho các ghi chú của bạn</p>
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400" htmlFor="new-cat-name">Tên danh mục</label>
+              <input
+                id="new-cat-name"
+                type="text"
+                required
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                className="h-10 rounded-xl border border-slate-200 dark:border-neutral-800 bg-transparent px-3 py-2 text-xs outline-hidden focus:border-[#4648d4] focus:ring-4 focus:ring-[#4648d4]/10 transition-all placeholder:text-slate-400"
+                placeholder="Ví dụ: học tập, công việc..."
+              />
+            </div>
+
+            <Button 
+              type="submit" 
+              disabled={isProcessing || !newCategoryName.trim()}
+              className="w-full rounded-xl h-10 bg-[#4648d4] hover:bg-[#6063ee] text-white text-xs font-semibold shadow-md shadow-indigo-100 dark:shadow-none cursor-pointer border-none flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+            >
+              {isProcessing && <Loader2Icon className="h-3 w-3 animate-spin" />}
+              Thêm danh mục
+            </Button>
+          </form>
+        </div>
+
+        {/* Right column: Category list & CRUD operations */}
+        <div className="flex-grow bg-white dark:bg-neutral-900/40 rounded-2xl border border-slate-100 dark:border-neutral-800 p-6 flex flex-col overflow-hidden shadow-xs">
+          <div className="mb-4">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-1">Danh sách danh mục ({systemTags.length})</h3>
+            <p className="text-[11px] text-slate-500">Danh sách các danh mục phân loại ghi chú hiện tại của bạn</p>
+          </div>
+
+          {msg && (
+            <div className={`mb-4 p-4 rounded-xl text-xs font-semibold flex items-center gap-2 border ${msg.type === "success" ? "bg-emerald-50 border-emerald-100 text-emerald-700" : "bg-red-50 border-red-100 text-red-600"}`}>
+              {msg.type === "success" ? <ShieldCheck className="h-4.5 w-4.5" /> : <div className="h-1.5 w-1.5 rounded-full bg-red-500" />}
+              <span>{msg.text}</span>
+            </div>
+          )}
+
+          {/* Categories List */}
+          <div className="flex-1 overflow-y-auto pr-1.5 flex flex-col gap-2 custom-scrollbar">
+            {systemTags.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 text-xs italic">
+                Chưa có danh mục nào được tạo.
+              </div>
+            ) : (
+              systemTags.map((tag) => {
+                const count = notes.filter(n => n.tags?.some(t => t.toLowerCase() === tag.toLowerCase())).length
+                const isEditing = editingCategory === tag
+
+                return (
+                  <div 
+                    key={tag}
+                    className="flex items-center justify-between p-3.5 bg-slate-50/50 dark:bg-neutral-900/20 border border-slate-100 dark:border-neutral-800/80 rounded-xl transition-all hover:bg-slate-50 dark:hover:bg-neutral-800/40"
+                  >
+                    {isEditing ? (
+                      <div className="flex items-center gap-2 flex-grow mr-4">
+                        <input
+                          type="text"
+                          value={editCategoryName}
+                          onChange={(e) => setEditCategoryName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleRenameCategory(tag)
+                            if (e.key === "Escape") setEditingCategory(null)
+                          }}
+                          className="h-9 px-3 rounded-lg border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-xs outline-hidden focus:border-[#4648d4] focus:ring-1 focus:ring-[#4648d4]/10 transition-all flex-grow text-slate-800 dark:text-slate-250"
+                          placeholder="Nhập tên mới..."
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => handleRenameCategory(tag)}
+                          disabled={isProcessing}
+                          className="px-3 h-9 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 cursor-pointer transition-colors border-none"
+                        >
+                          Lưu
+                        </button>
+                        <button
+                          onClick={() => setEditingCategory(null)}
+                          className="px-3 h-9 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-slate-600 dark:text-slate-350 cursor-pointer transition-colors border-none"
+                        >
+                          Hủy
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2.5 overflow-hidden">
+                          <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">#{tag}</span>
+                          <span className="text-[10px] bg-slate-200/50 dark:bg-neutral-800 text-slate-500 dark:text-neutral-450 px-2 py-0.5 rounded-full font-bold">
+                            {count} ghi chú
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => {
+                              setEditingCategory(tag)
+                              setEditCategoryName(tag)
+                            }}
+                            className="p-2 hover:bg-[#eceef0] dark:hover:bg-neutral-800 rounded-lg text-slate-500 hover:text-[#4648d4] cursor-pointer transition-colors border-none bg-transparent"
+                            title="Sửa tên danh mục"
+                          >
+                            <PencilIcon className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCategory(tag)}
+                            className="p-2 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg text-slate-500 hover:text-rose-600 cursor-pointer transition-colors border-none bg-transparent"
+                            title="Xóa danh mục"
+                          >
+                            <Trash2Icon className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+
       </div>
     </div>
   )
